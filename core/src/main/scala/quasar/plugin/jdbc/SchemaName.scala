@@ -14,28 +14,23 @@
  * limitations under the License.
  */
 
-package quasar.plugin
-
-import scala.{Option, Some}
-import scala.util.{Either, Left, Right}
+package quasar.plugin.jdbc
 
 import java.lang.String
 
-import quasar.api.resource.{/:, ResourcePath}
+import cats.{Order, Show}
 
-package object jdbc {
+final case class SchemaName(asIdent: Ident) {
+  def asString: String = asIdent.asString
+}
 
-  /** A reference to a database object. */
-  type DboRef = Either[Ident, (Ident, Ident)]
+object SchemaName {
+  def fromString(name: String): SchemaName =
+    SchemaName(Ident(name))
 
-  val Redacted: String = "<REDACTED>"
+  implicit val schemaNameOrder: Order[SchemaName] =
+    Order.by(_.asIdent)
 
-  def resourcePathRef(p: ResourcePath): Option[DboRef] =
-    Some(p) collect {
-      case fst /: ResourcePath.Root =>
-        Left(Ident(fst))
-
-      case fst /: snd /: ResourcePath.Root =>
-        Right((Ident(fst), Ident(snd)))
-    }
+  implicit val schemaNameShow: Show[SchemaName] =
+    Show.show(s => "SchemaName(" + s.asString + ")")
 }

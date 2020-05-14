@@ -14,28 +14,20 @@
  * limitations under the License.
  */
 
-package quasar.plugin
-
-import scala.{Option, Some}
-import scala.util.{Either, Left, Right}
+package quasar.plugin.jdbc
 
 import java.lang.String
 
-import quasar.api.resource.{/:, ResourcePath}
+import cats.{Order, Show}
+import cats.instances.string._
 
-package object jdbc {
+/** A SQL identifier (schema, table, column, etc). */
+final case class Ident(asString: String) extends scala.AnyVal
 
-  /** A reference to a database object. */
-  type DboRef = Either[Ident, (Ident, Ident)]
+object Ident {
+  implicit val identOrder: Order[Ident] =
+    Order.by(_.asString)
 
-  val Redacted: String = "<REDACTED>"
-
-  def resourcePathRef(p: ResourcePath): Option[DboRef] =
-    Some(p) collect {
-      case fst /: ResourcePath.Root =>
-        Left(Ident(fst))
-
-      case fst /: snd /: ResourcePath.Root =>
-        Right((Ident(fst), Ident(snd)))
-    }
+  implicit val identShow: Show[Ident] =
+    Show.fromToString
 }

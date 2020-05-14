@@ -14,28 +14,11 @@
  * limitations under the License.
  */
 
-package quasar.plugin
-
-import scala.{Option, Some}
-import scala.util.{Either, Left, Right}
+package quasar.plugin.jdbc
 
 import java.lang.String
 
-import quasar.api.resource.{/:, ResourcePath}
-
-package object jdbc {
-
-  /** A reference to a database object. */
-  type DboRef = Either[Ident, (Ident, Ident)]
-
-  val Redacted: String = "<REDACTED>"
-
-  def resourcePathRef(p: ResourcePath): Option[DboRef] =
-    Some(p) collect {
-      case fst /: ResourcePath.Root =>
-        Left(Ident(fst))
-
-      case fst /: snd /: ResourcePath.Root =>
-        Right((Ident(fst), Ident(snd)))
-    }
+/** A value that is safe to substitute into a SQL query string. */
+trait Hygienic {
+  def forSql: String
 }
