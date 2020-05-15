@@ -41,16 +41,12 @@ import quasar.connector.datasource.LightweightDatasourceModule
 
 import shims.equalToCats
 
-// TODO: Doobie query logging
-abstract class JdbcDatasource[F[_]: Bracket[?[_], Throwable]: Defer](
-    xa: Transactor[F],
-    log: Logger[F])
-    extends LightweightDatasourceModule.DS[F] {
+trait JdbcDatasource[F[_]] extends LightweightDatasourceModule.DS[F] {
+  protected val xa: Transactor[F]
+  protected val log: Logger[F]
 
-  /** A SQL identifier that has been escaped and quoted as necessary for
-    * literal substitution into SQL query string.
-    */
-  type HygienicIdent <: Hygienic
+  implicit protected def BracketF: Bracket[F, Throwable]
+  implicit protected def DeferF: Defer[F]
 
   /** The set of table types that should be discoverable.
     *
@@ -61,18 +57,15 @@ abstract class JdbcDatasource[F[_]: Bracket[?[_], Throwable]: Defer](
     */
   def discoverableTableTypes: NonEmptySet[TableType]
 
-  /** Returns a hygienic version of the given identifier. */
-  def hygienicIdent(ident: Ident): HygienicIdent
-
   ////
 
   def pathIsResource(path: ResourcePath): Resource[F, Boolean] =
     resourcePathRef(path).fold(false.pure[Resource[F, ?]]) {
       case Left(table) =>
-        Resource.liftF(tableExists(None, TableName(table)).transact(xa))
+        Resource.liftF(tableExists(TableName(table), None).transact(xa))
 
       case Right((schema, table)) =>
-        Resource.liftF(tableExists(Some(SchemaName(schema)), TableName(table)).transact(xa))
+        Resource.liftF(tableExists(TableName(table), Some(SchemaName(schema))).transact(xa))
     }
 
   def prefixedChildPaths(prefixPath: ResourcePath): Resource[F, Option[Stream[F, (ResourceName, RPT.Physical)]]] = {
@@ -90,7 +83,7 @@ abstract class JdbcDatasource[F[_]: Bracket[?[_], Throwable]: Defer](
       resourcePathRef(prefixPath).fold((None: Option[Out[F]]).pure[Resource[F, ?]]) {
         case Right((schema, table)) =>
           Resource liftF {
-            tableExists(Some(SchemaName(schema)), TableName(table))
+            tableExists(TableName(table), Some(SchemaName(schema)))
               .map(p => if (p) Some(Stream.empty: Out[F]) else None)
               .transact(xa)
           }
@@ -106,7 +99,7 @@ abstract class JdbcDatasource[F[_]: Bracket[?[_], Throwable]: Defer](
           for {
             c <- xa.connect(xa.kernel)
 
-            isTable <- Resource.liftF(runCIO(c)(tableExists(None, TableName(ident))))
+            isTable <- Resource.liftF(runCIO(c)(tableExists(TableName(ident), None)))
 
             opt <- if (isTable)
               Resource.pure[F, Option[Out[ConnectionIO]]](Some(Stream.empty))
@@ -151,7 +144,7 @@ abstract class JdbcDatasource[F[_]: Bracket[?[_], Throwable]: Defer](
   private def runCIO(c: java.sql.Connection): ConnectionIO ~> F =
     λ[ConnectionIO ~> F](_.foldMap(xa.interpret).run(c))
 
-  private def tableExists(schema: Option[SchemaName], table: TableName): ConnectionIO[Boolean] =
+  private def tableExists(table: TableName, schema: Option[SchemaName]): ConnectionIO[Boolean] =
     Stream.eval(tableSelector(schema.fold(Ior.right[SchemaName, TableName](table))(Ior.both(_, table))))
       .flatMap(tables)
       .exists(m => m.schema === schema && m.table === table)
