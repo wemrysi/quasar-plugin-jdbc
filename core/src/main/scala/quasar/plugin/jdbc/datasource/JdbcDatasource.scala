@@ -17,6 +17,7 @@
 package quasar.plugin.jdbc.datasource
 
 import quasar.plugin.jdbc._
+import quasar.plugin.jdbc.implicits._
 
 import scala.{Boolean, Char, Int, Nil, None, Option, Some}
 import scala.collection.immutable.Set
@@ -42,8 +43,8 @@ import quasar.connector.datasource.LightweightDatasourceModule
 import shims.equalToCats
 
 trait JdbcDatasource[F[_]] extends LightweightDatasourceModule.DS[F] {
-  protected val xa: Transactor[F]
-  protected val log: Logger[F]
+  protected def xa: Transactor[F]
+  protected def log: Logger[F]
 
   implicit protected def BracketF: Bracket[F, Throwable]
   implicit protected def DeferF: Defer[F]
@@ -55,7 +56,18 @@ trait JdbcDatasource[F[_]] extends LightweightDatasourceModule.DS[F] {
     *
     * @see https://docs.oracle.com/javase/8/docs/api/java/sql/DatabaseMetaData.html#getTableTypes--
     */
-  def discoverableTableTypes: NonEmptySet[TableType]
+  protected def discoverableTableTypes: ConnectionIO[NonEmptySet[TableType]]
+
+  /** Returns whether a table having the specified name and schema exists in the database.
+    *
+    * If `schema` is `None`, the table is expected to not have a schema.
+    */
+  protected def tableExists(table: TableName, schema: Option[SchemaName]): ConnectionIO[Boolean] =
+    Stream.eval(tableSelector(schema.fold(Ior.right[SchemaName, TableName](table))(Ior.both(_, table))))
+      .flatMap(tables)
+      .exists(m => m.schema === schema && m.table === table)
+      .compile
+      .lastOrError
 
   ////
 
@@ -97,15 +109,15 @@ trait JdbcDatasource[F[_]] extends LightweightDatasourceModule.DS[F] {
               .stream
 
           for {
-            c <- xa.connect(xa.kernel)
+            c <- xa.strategicConnection
 
-            isTable <- Resource.liftF(runCIO(c)(tableExists(TableName(ident), None)))
+            isTable <- Resource.liftF(xa.runWith(c).apply(tableExists(TableName(ident), None)))
 
             opt <- if (isTable)
               Resource.pure[F, Option[Out[ConnectionIO]]](Some(Stream.empty))
             else
-              paths.compile.resource.lastOrError.mapK(runCIO(c))
-          } yield opt.map(_.translate(runCIO(c)))
+              paths.compile.resource.lastOrError.mapK(xa.runWith(c))
+          } yield opt.map(_.translate(xa.runWith(c)))
       }
   }
 
@@ -141,23 +153,14 @@ trait JdbcDatasource[F[_]] extends LightweightDatasourceModule.DS[F] {
   // Characters considered pattern placeholders by `DatabaseMetaData#getTables`
   private val Wildcards: Set[Char] = Set('_', '%')
 
-  private def runCIO(c: java.sql.Connection): ConnectionIO ~> F =
-    λ[ConnectionIO ~> F](_.foldMap(xa.interpret).run(c))
-
-  private def tableExists(table: TableName, schema: Option[SchemaName]): ConnectionIO[Boolean] =
-    Stream.eval(tableSelector(schema.fold(Ior.right[SchemaName, TableName](table))(Ior.both(_, table))))
-      .flatMap(tables)
-      .exists(m => m.schema === schema && m.table === table)
-      .compile
-      .lastOrError
-
   private def tables(selector: TableSelector): Stream[ConnectionIO, TableMeta] = {
     val (schemaPattern, tablePattern) = selector
 
     Stream.force(for {
       catalog <- HC.getCatalog
-      theseTypes = discoverableTableTypes.map(_.name).toSortedSet.toArray
-      rs <- HC.getMetaData(FDMD.getTables(catalog, schemaPattern, tablePattern, theseTypes))
+      types <- discoverableTableTypes
+      typeMask = types.map(_.name).toSortedSet.toArray
+      rs <- HC.getMetaData(FDMD.getTables(catalog, schemaPattern, tablePattern, typeMask))
       ts = HRS.stream[TableMeta](JdbcDatasource.MetaChunkSize)
     } yield ts.translate(λ[ResultSetIO ~> ConnectionIO](FC.embed(rs, _))))
   }

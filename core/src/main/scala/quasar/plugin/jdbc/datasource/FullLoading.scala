@@ -17,53 +17,61 @@
 package quasar.plugin.jdbc.datasource
 
 import quasar.plugin.jdbc._
+import quasar.plugin.jdbc.implicits._
 
-import scala.Option
+import scala.{None, Option, Some}
+import scala.util.{Left, Right}
+
+import cats.data.NonEmptyList
+import cats.effect.Resource
+import cats.implicits._
 
 import doobie._
 
 import quasar.ScalarStages
-import quasar.connector.QueryResult
+import quasar.api.resource.ResourcePath
+import quasar.connector.{MonadResourceErr, QueryResult, ResourceError => RE}
 import quasar.connector.datasource._
+import quasar.qscript.InterpretedRead
 
 // TODO: Doobie query logging
+// TODO: Hygiene
 trait FullLoading[F[_]] { self: JdbcDatasource[F] with Hygiene =>
 
-  def tableResult(table: TableName, schema: Option[SchemaName], scalarStages: ScalarStages)
-      : QueryResult[ConnectionIO]
+  implicit protected def MonadResourceErrF: MonadResourceErr[F]
+
+  protected def tableResult(table: TableName, schema: Option[SchemaName], scalarStages: ScalarStages)
+      : ConnectionIO[QueryResult[ConnectionIO]]
 
   ////
 
   val loaders = NonEmptyList.of(Loader.Batch(BatchLoader.Full { (ir: InterpretedRead[ResourcePath]) =>
-    Resource.liftF(pathIsResource(ir.path)) map { isResource =>
-      resourcePathRef(ir.path) match {
-        case Some(Right((schema, table))) =>
-          val back = tableExists(schema, table) map { exists =>
-            if (exists)
-              Right(maskedColumns(ir.stages) match {
-                case Some((columns, nextStages)) =>
-                  (tableAsJsonBytes(schema, ColumnProjections.Explicit(columns), table), nextStages)
+    resourcePathRef(ir.path) match {
+      case Some(ref) =>
+        val (table, schema) = ref match {
+          case Left(table) => (TableName(table), None)
+          case Right((schema, table)) => (TableName(table), Some(SchemaName(schema)))
+        }
 
-                case None =>
-                  (tableAsJsonBytes(schema, ColumnProjections.All, table), ir.stages)
-              })
-            else
-              Left(RE.pathNotFound[RE](ir.path))
+        val result = tableExists(table, schema) flatMap { exists =>
+          if (exists)
+            tableResult(table, schema, ir.stages).map(_.asRight[RE])
+          else
+            FC.pure(RE.pathNotFound[RE](ir.path).asLeft[QueryResult[ConnectionIO]])
+        }
+
+        xa.strategicConnection evalMap { c =>
+          xa.runWith(c).apply(result) flatMap {
+            case Left(re) =>
+              MonadResourceErr[F].raiseError[QueryResult[F]](re)
+
+            case Right(qr) =>
+              qr.mapK(xa.runWith(c)).pure[F]
           }
+        }
 
-          xa.connect(xa.kernel)
-            .evalMap(c => runCIO(c)(back.map(_.map(_.leftMap(_.translate(runCIO(c)))))))
-            .evalMap {
-              case Right((s, stages)) =>
-                QueryResult.typed(DataFormat.ldjson, s, stages).pure[F]
-
-              case Left(re) =>
-                MonadResourceErr[F].raiseError[QueryResult[F]](re)
-            }
-
-        case _ =>
-          Resource.liftF(MonadResourceErr[F].raiseError(RE.notAResource(ir.path)))
-      }
+      case None =>
+        Resource.liftF(MonadResourceErr[F].raiseError(RE.notAResource(ir.path)))
     }
   }))
 }
