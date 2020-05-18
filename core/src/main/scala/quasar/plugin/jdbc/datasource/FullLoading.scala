@@ -49,8 +49,8 @@ trait FullLoading[F[_]] { self: JdbcDatasource[F] with Hygiene =>
     resourcePathRef(ir.path) match {
       case Some(ref) =>
         val (table, schema) = ref match {
-          case Left(table) => (TableName(table), None)
-          case Right((schema, table)) => (TableName(table), Some(SchemaName(schema)))
+          case Left(table) => (table, None)
+          case Right((schema, table)) => (table, Some(schema))
         }
 
         val result = tableExists(table, schema) flatMap { exists =>

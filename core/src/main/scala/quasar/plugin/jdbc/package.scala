@@ -28,6 +28,12 @@ package object jdbc {
   /** A reference to a database object. */
   type DboRef = Either[Ident, (Ident, Ident)]
 
+  type SchemaName = Ident
+  def SchemaName(name: String): SchemaName = Ident(name)
+
+  type TableName = Ident
+  def TableName(name: String): TableName = Ident(name)
+
   val Redacted: String = "<REDACTED>"
 
   def resourcePathRef(p: ResourcePath): Option[DboRef] =

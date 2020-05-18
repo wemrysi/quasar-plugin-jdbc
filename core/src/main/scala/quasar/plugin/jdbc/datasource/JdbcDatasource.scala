@@ -74,10 +74,10 @@ trait JdbcDatasource[F[_]] extends LightweightDatasourceModule.DS[F] {
   def pathIsResource(path: ResourcePath): Resource[F, Boolean] =
     resourcePathRef(path).fold(false.pure[Resource[F, ?]]) {
       case Left(table) =>
-        Resource.liftF(tableExists(TableName(table), None).transact(xa))
+        Resource.liftF(tableExists(table, None).transact(xa))
 
       case Right((schema, table)) =>
-        Resource.liftF(tableExists(TableName(table), Some(SchemaName(schema))).transact(xa))
+        Resource.liftF(tableExists(table, Some(schema)).transact(xa))
     }
 
   def prefixedChildPaths(prefixPath: ResourcePath): Resource[F, Option[Stream[F, (ResourceName, RPT.Physical)]]] = {
@@ -95,14 +95,15 @@ trait JdbcDatasource[F[_]] extends LightweightDatasourceModule.DS[F] {
       resourcePathRef(prefixPath).fold((None: Option[Out[F]]).pure[Resource[F, ?]]) {
         case Right((schema, table)) =>
           Resource liftF {
-            tableExists(TableName(table), Some(SchemaName(schema)))
+            tableExists(table, Some(schema))
               .map(p => if (p) Some(Stream.empty: Out[F]) else None)
               .transact(xa)
           }
 
         case Left(ident) =>
           def paths =
-            Stream.force(tableSelector(Ior.left(SchemaName(ident))).map(tables))
+            Stream.eval(tableSelector(Ior.left(ident)))
+              .flatMap(tables)
               .map(m => (ResourceName(m.table.asString), RPT.leafResource))
               .pull.peek1
               .flatMap(t => Pull.output1(t.map(_._2)))
@@ -111,7 +112,7 @@ trait JdbcDatasource[F[_]] extends LightweightDatasourceModule.DS[F] {
           for {
             c <- xa.strategicConnection
 
-            isTable <- Resource.liftF(xa.runWith(c).apply(tableExists(TableName(ident), None)))
+            isTable <- Resource.liftF(xa.runWith(c).apply(tableExists(ident, None)))
 
             opt <- if (isTable)
               Resource.pure[F, Option[Out[ConnectionIO]]](Some(Stream.empty))
@@ -123,7 +124,7 @@ trait JdbcDatasource[F[_]] extends LightweightDatasourceModule.DS[F] {
 
   ////
 
-  private case class TableMeta(schema: Option[SchemaName], table: TableName)
+  private case class TableMeta(table: TableName, schema: Option[SchemaName])
 
   private object TableMeta {
     /** Only usable with the ResultSet returned from `DatabaseMetaData#getTables`
@@ -142,8 +143,8 @@ trait JdbcDatasource[F[_]] extends LightweightDatasourceModule.DS[F] {
     implicit val tableMetaRead: Read[TableMeta] =
       new Read[TableMeta](Nil, (rs, _) =>
         TableMeta(
-          Option(rs.getString(2)).map(SchemaName.fromString(_)),
-          TableName.fromString(rs.getString(3))))
+          TableName(rs.getString(3)),
+          Option(rs.getString(2)).map(SchemaName)))
   }
 
   private type TableSelector = (String, String)
@@ -191,13 +192,13 @@ trait JdbcDatasource[F[_]] extends LightweightDatasourceModule.DS[F] {
   private def topLevel: Stream[ConnectionIO, Either[SchemaName, TableName]] =
     tables(AllTablesSelector)
       .scan((Set.empty[SchemaName], None: Option[Either[SchemaName, TableName]])) {
-        case ((seen, _), TableMeta(Some(schema), _)) =>
+        case ((seen, _), TableMeta(_, Some(schema))) =>
           if (seen(schema))
             (seen, None)
           else
             (seen + schema, Some(Left(schema)))
 
-        case ((seen, _), TableMeta(None, table)) =>
+        case ((seen, _), TableMeta(table, None)) =>
           (seen, Some(Right(table)))
       }
       .map(_._2)
