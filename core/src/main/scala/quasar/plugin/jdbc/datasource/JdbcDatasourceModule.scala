@@ -16,7 +16,7 @@
 
 package quasar.plugin.jdbc.datasource
 
-import quasar.plugin.jdbc.{JdbcConfig, Redacted}
+import quasar.plugin.jdbc.{JdbcConfig, Redacted, Slf4sLogHandler}
 
 import java.lang.{Exception, RuntimeException, String}
 import java.net.URL
@@ -47,6 +47,8 @@ import quasar.api.datasource.{DatasourceError => DE}
 import quasar.connector.{ByteStore, MonadResourceErr}
 import quasar.connector.datasource.LightweightDatasourceModule
 
+import org.slf4s.LoggerFactory
+
 /** A Quasar LightweightDatsourceModule for JDBC sources.
   *
   * @param driverFqcn the fully-qualified class name of the JDBC driver to use
@@ -62,7 +64,8 @@ abstract class JdbcDatasourceModule[C <: JdbcConfig: DecodeJson](
       transactor: Transactor[F],
       rateLimiter: RateLimiting[F, A],
       byteStore: ByteStore[F],
-      log: Logger[F])
+      log: Logger[F],
+      logHandler: LogHandler)
       : Resource[F, Either[InitError, LightweightDatasourceModule.DS[F]]]
 
   ////
@@ -109,9 +112,11 @@ abstract class JdbcDatasourceModule[C <: JdbcConfig: DecodeJson](
           Left(DE.connectionFailed[Json, InitError](kind, sanitizeConfig(config), ex))
       })
 
-      log <- liftF(Slf4jLogger.fromName[F](s"quasar.plugin.$debugId"))
+      slog <- liftF(Sync[F].delay(LoggerFactory(s"quasar.plugin.$debugId")))
 
-      ds <- EitherT(jdbcDatasource(cfg, xa, rateLimiter, byteStore, log))
+      log <- liftF(Slf4jLogger.fromSlf4j[F](slog.underlying))
+
+      ds <- EitherT(jdbcDatasource(cfg, xa, rateLimiter, byteStore, log, Slf4sLogHandler(slog)))
 
       _ <- liftF(log.info(s"Initialized datasource $ident: tag = $tag, config = ${sanitizeConfig(config)}"))
     } yield ds
