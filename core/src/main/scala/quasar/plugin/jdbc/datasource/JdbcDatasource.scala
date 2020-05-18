@@ -35,8 +35,6 @@ import doobie.implicits._
 
 import fs2.{Pull, Stream}
 
-import io.chrisdavenport.log4cats.Logger
-
 import quasar.api.resource.{ResourceName, ResourcePath, ResourcePathType => RPT}
 import quasar.connector.datasource.LightweightDatasourceModule
 
@@ -44,7 +42,6 @@ import shims.equalToCats
 
 trait JdbcDatasource[F[_]] extends LightweightDatasourceModule.DS[F] {
   protected def xa: Transactor[F]
-  protected def log: Logger[F]
 
   implicit protected def BracketF: Bracket[F, Throwable]
   implicit protected def DeferF: Defer[F]

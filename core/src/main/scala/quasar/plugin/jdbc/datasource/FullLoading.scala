@@ -34,13 +34,17 @@ import quasar.connector.{MonadResourceErr, QueryResult, ResourceError => RE}
 import quasar.connector.datasource._
 import quasar.qscript.InterpretedRead
 
-// TODO: Doobie query logging
-// TODO: Hygiene
 trait FullLoading[F[_]] { self: JdbcDatasource[F] with Hygiene =>
 
   implicit protected def MonadResourceErrF: MonadResourceErr[F]
 
-  protected def tableResult(table: TableName, schema: Option[SchemaName], scalarStages: ScalarStages)
+  /** Returns the result of evaluating zero or more `ScalarStages` against
+    * the table in the specified schema.
+    */
+  protected def tableResult(
+      table: HygienicIdent,
+      schema: Option[HygienicIdent],
+      scalarStages: ScalarStages)
       : ConnectionIO[QueryResult[ConnectionIO]]
 
   ////
@@ -55,7 +59,8 @@ trait FullLoading[F[_]] { self: JdbcDatasource[F] with Hygiene =>
 
         val result = tableExists(table, schema) flatMap { exists =>
           if (exists)
-            tableResult(table, schema, ir.stages).map(_.asRight[RE])
+            tableResult(hygienicIdent(table), schema.map(hygienicIdent), ir.stages)
+              .map(_.asRight[RE])
           else
             FC.pure(RE.pathNotFound[RE](ir.path).asLeft[QueryResult[ConnectionIO]])
         }
