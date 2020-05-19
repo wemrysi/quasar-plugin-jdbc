@@ -38,3 +38,15 @@ lazy val core = project
       "org.tpolecat" %% "doobie-core" % DoobieVersion,
       "org.tpolecat" %% "doobie-hikari" % DoobieVersion
     ))
+
+lazy val avalancheDatasource = project
+  .in(file("avalanche/datasource"))
+  .dependsOn(core)
+  .settings(
+    name := "quasar-datasource-avalanche",
+    quasarPluginName := "avalanche",
+    quasarPluginQuasarVersion := quasarVersion.value,
+    quasarPluginDatasourceFqcn := Some("quasar.plugin.avalanche.datasource.AvalancheDatasourceModule$"),
+    quasarPluginDependencies ++= Seq(
+    ))
+  .enablePlugins(QuasarPlugin)
