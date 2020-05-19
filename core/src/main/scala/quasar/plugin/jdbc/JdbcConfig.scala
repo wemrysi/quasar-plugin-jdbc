@@ -16,20 +16,20 @@
 
 package quasar.plugin.jdbc
 
-import java.net.URL
+import java.net.URI
 
 import scala.Int
 import scala.concurrent.duration.FiniteDuration
 
 trait JdbcConfig {
-  /** The database connection URL without the `jdbc:` prefix. */
-  def connectionUrl: URL
-
-  /** The number of concurrent connections to allow to the database. */
-  def maxConcurrentConnections: Int
+  /** The database connection URI without the `jdbc:` prefix. */
+  def connectionUri: URI
 
   /** The duration to await validation of the initial connection to the database
     * when instantiating the plugin.
     */
   def connectionValidationTimeout: FiniteDuration
+
+  /** The number of concurrent connections to allow to the database. */
+  def maxConcurrentConnections: Int
 }

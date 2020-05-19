@@ -19,7 +19,7 @@ package quasar.plugin.jdbc.datasource
 import quasar.plugin.jdbc.{JdbcConfig, Redacted, Slf4sLogHandler}
 
 import java.lang.{Exception, RuntimeException, String}
-import java.net.URL
+import java.net.URI
 import java.util.concurrent.Executors
 
 import scala.{Int, StringContext, Unit}
@@ -105,7 +105,7 @@ abstract class JdbcDatasourceModule[C <: JdbcConfig: DecodeJson](
       awaitPool <- EitherT.right(awaitConnPool[F](s"$debugId.await", connPoolSize))
       xaPool <- EitherT.right(transactPool[F](s"$debugId.transact"))
 
-      xa <- EitherT.right(hikariTransactor[F](cfg.connectionUrl, connPoolSize, awaitPool, xaPool))
+      xa <- EitherT.right(hikariTransactor[F](cfg.connectionUri, connPoolSize, awaitPool, xaPool))
 
       _ <- liftF(validateConnection(cfg.connectionValidationTimeout).transact(xa) recover {
         case NonFatal(ex: Exception) =>
@@ -141,7 +141,7 @@ abstract class JdbcDatasourceModule[C <: JdbcConfig: DecodeJson](
       kind, c, new RuntimeException("Connection is invalid."))
 
   private def hikariTransactor[F[_]: Async: ContextShift](
-      connUrl: URL,
+      connUri: URI,
       connPoolSize: Int,
       connectPool: ExecutionContext,
       xaBlocker: Blocker)
@@ -150,7 +150,7 @@ abstract class JdbcDatasourceModule[C <: JdbcConfig: DecodeJson](
     HikariTransactor.initial[F](connectPool, xaBlocker) evalMap { xa =>
       xa.configure { ds =>
         Sync[F] delay {
-          ds.setJdbcUrl(s"jdbc:$connUrl")
+          ds.setJdbcUrl(s"jdbc:$connUri")
           ds.setDriverClassName(driverFqcn)
           ds.setMaximumPoolSize(connPoolSize)
           xa
