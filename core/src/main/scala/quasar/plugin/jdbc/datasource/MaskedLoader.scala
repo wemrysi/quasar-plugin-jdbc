@@ -18,38 +18,35 @@ package quasar.plugin.jdbc.datasource
 
 import quasar.plugin.jdbc._
 
-import scala.Option
+import scala.{None, Option, Some}
 
-import cats.{Defer, Monad}
-import cats.effect.Resource
+import cats.Functor
+import cats.data.Kleisli
+import cats.syntax.functor._
 
-import doobie._
-
-import quasar.api.resource.ResourcePath
-import quasar.connector.{MonadResourceErr, QueryResult}
-import quasar.connector.datasource._
-import quasar.qscript.InterpretedRead
+import quasar.ScalarStages
+import quasar.connector.QueryResult
 
 object MaskedLoader {
-  /** A `BatchLoader` that loads the entire contents of a table, interpreting an
-    * initial `Mask` stage as column selection.
+  /** Transforms a `MaskedLoader` into a `JdbcLoader` by extracting a `ColumnSelection`
+    * from an initial `Mask` stage.
     *
-    * @param xa the transactor to execute sql statements with
-    * @param discovery used to determine whether a query path refers to a table
     * @param hygiene a means of obtaining hygienic identifiers
-    * @param load returns the `QueryResult` for the given table, schema and column selection
+    * @param loader the loader to transform
     */
-  def apply[F[_]: Defer: Monad: MonadResourceErr](
-      xa: Transactor[F],
-      discovery: JdbcDiscovery,
+  def apply[F[_]: Functor](
       hygiene: Hygiene)(
-      load: (hygiene.HygienicIdent, Option[hygiene.HygienicIdent], ColumnSelection[hygiene.HygienicIdent]) => ConnectionIO[QueryResult[ConnectionIO]])
-      : BatchLoader[Resource[F, ?], InterpretedRead[ResourcePath], QueryResult[F]] =
-    FullLoader(xa, discovery, hygiene) { (table, schema, stages) =>
-      MaskedColumns(stages).fold(load(table, schema, ColumnSelection.All)) {
-        case (cols, moreStages) =>
-          val explicit = ColumnSelection.Explicit(cols.map(hygiene.hygienicIdent(_)))
-          load(table, schema, explicit)
-      }
-    }
+      loader: MaskedLoader[F, hygiene.HygienicIdent])
+      : JdbcLoader[F, hygiene.HygienicIdent] =
+    loader.transform(k => Kleisli[F, (hygiene.HygienicIdent, Option[hygiene.HygienicIdent], ScalarStages), QueryResult[F]] {
+      case (table, schema, stages) =>
+        MaskedColumns(stages) match {
+          case Some((cols, moreStages)) =>
+            val explicit = ColumnSelection.Explicit(cols.map(hygiene.hygienicIdent(_)))
+            k((table, schema, explicit)).map(QueryResult.stages[F].set(moreStages))
+
+          case None =>
+            k((table, schema, ColumnSelection.All)).map(QueryResult.stages[F].set(stages))
+        }
+    })
 }

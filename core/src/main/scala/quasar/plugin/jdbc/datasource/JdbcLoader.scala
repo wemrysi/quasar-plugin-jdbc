@@ -19,36 +19,36 @@ package quasar.plugin.jdbc.datasource
 import quasar.plugin.jdbc._
 import quasar.plugin.jdbc.implicits._
 
-import scala.{None, Option, Some}
+import scala.{None, Some}
 import scala.util.{Left, Right}
 
 import cats.{Defer, Monad}
+import cats.data.Kleisli
 import cats.effect.Resource
 import cats.implicits._
 
 import doobie._
 
-import quasar.ScalarStages
 import quasar.api.resource.ResourcePath
 import quasar.connector.{MonadResourceErr, QueryResult, ResourceError => RE}
 import quasar.connector.datasource._
 import quasar.qscript.InterpretedRead
 
-object FullLoader {
-  /** A `BatchLoader` that loads the entire contents of a table.
+object JdbcLoader {
+  /** Transforms a `JdbcLoader` into a loader suitable for use in a `LightweightDatasource`
     *
     * @param xa the transactor to execute sql statements with
     * @param discovery used to determine whether a query path refers to a table
     * @param hygiene a means of obtaining hygienic identifiers
-    * @param load returns the `QueryResult` for the given table, schema and scalar stages
+    * @param loader the loader to transform
     */
   def apply[F[_]: Defer: Monad: MonadResourceErr](
       xa: Transactor[F],
       discovery: JdbcDiscovery,
       hygiene: Hygiene)(
-      load: (hygiene.HygienicIdent, Option[hygiene.HygienicIdent], ScalarStages) => ConnectionIO[QueryResult[ConnectionIO]])
+      loader: JdbcLoader[ConnectionIO, hygiene.HygienicIdent])
       : BatchLoader[Resource[F, ?], InterpretedRead[ResourcePath], QueryResult[F]] =
-    BatchLoader.Full { (ir: InterpretedRead[ResourcePath]) =>
+    loader.transform(k => Kleisli { (ir: InterpretedRead[ResourcePath]) =>
       resourcePathRef(ir.path) match {
         case Some(ref) =>
           val (table, schema) = ref match {
@@ -58,7 +58,7 @@ object FullLoader {
 
           val result = discovery.tableExists(table, schema) flatMap { exists =>
             if (exists)
-              load(hygiene.hygienicIdent(table), schema.map(hygiene.hygienicIdent(_)), ir.stages)
+              k((hygiene.hygienicIdent(table), schema.map(hygiene.hygienicIdent(_)), ir.stages))
                 .map(_.asRight[RE])
             else
               FC.pure(RE.pathNotFound[RE](ir.path).asLeft[QueryResult[ConnectionIO]])
@@ -77,5 +77,5 @@ object FullLoader {
         case None =>
           Resource.liftF(MonadResourceErr[F].raiseError(RE.notAResource(ir.path)))
       }
-    }
+    })
 }
