@@ -39,15 +39,12 @@ import doobie._
 import doobie.hikari.HikariTransactor
 import doobie.implicits._
 
-import io.chrisdavenport.log4cats.Logger
-import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
-
 import quasar.{concurrent => qc, RateLimiting}
 import quasar.api.datasource.{DatasourceError => DE}
 import quasar.connector.{ByteStore, MonadResourceErr}
 import quasar.connector.datasource.LightweightDatasourceModule
 
-import org.slf4s.LoggerFactory
+import org.slf4s.{Logger, LoggerFactory}
 
 /** A Quasar LightweightDatsourceModule for JDBC sources.
   *
@@ -64,7 +61,7 @@ abstract class JdbcDatasourceModule[C <: JdbcConfig: DecodeJson](
       transactor: Transactor[F],
       rateLimiter: RateLimiting[F, A],
       byteStore: ByteStore[F],
-      log: Logger[F],
+      log: Logger,
       logHandler: LogHandler)
       : Resource[F, Either[InitError, LightweightDatasourceModule.DS[F]]]
 
@@ -114,11 +111,9 @@ abstract class JdbcDatasourceModule[C <: JdbcConfig: DecodeJson](
 
       slog <- liftF(Sync[F].delay(LoggerFactory(s"quasar.plugin.$debugId")))
 
-      log <- liftF(Slf4jLogger.fromSlf4j[F](slog.underlying))
+      ds <- EitherT(jdbcDatasource(cfg, xa, rateLimiter, byteStore, slog, Slf4sLogHandler(slog)))
 
-      ds <- EitherT(jdbcDatasource(cfg, xa, rateLimiter, byteStore, log, Slf4sLogHandler(slog)))
-
-      _ <- liftF(log.info(s"Initialized datasource $ident: tag = $tag, config = ${sanitizeConfig(config)}"))
+      _ <- liftF(Sync[F].delay(slog.info(s"Initialized datasource $ident: tag = $tag, config = ${sanitizeConfig(config)}")))
     } yield ds
 
     init.value

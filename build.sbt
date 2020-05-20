@@ -31,8 +31,6 @@ lazy val core = project
     libraryDependencies ++= Seq(
       "com.precog" %% "quasar-connector" % quasarVersion.value,
 
-      "io.chrisdavenport" %% "log4cats-slf4j" % "1.1.1",
-
       "org.slf4s" %% "slf4s-api" % "1.7.25",
 
       "org.tpolecat" %% "doobie-core" % DoobieVersion,

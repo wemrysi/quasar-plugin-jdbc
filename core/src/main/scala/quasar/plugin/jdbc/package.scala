@@ -28,6 +28,9 @@ package object jdbc {
   /** A reference to a database object. */
   type DboRef = Either[Ident, (Ident, Ident)]
 
+  type ColumnName = Ident
+  def ColumnName(name: String): ColumnName = Ident(name)
+
   type SchemaName = Ident
   def SchemaName(name: String): SchemaName = Ident(name)
 
