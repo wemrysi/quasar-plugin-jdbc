@@ -48,6 +48,12 @@ import org.slf4s.{Logger, LoggerFactory}
 
 /** A Quasar LightweightDatsourceModule for JDBC sources.
   *
+  * Handles boilerplate common to all JDBC datasources, such as
+  *   - parsing JSON into a vendor-specific config
+  *   - constructing a pooled `Transactor` along with the necessary threadpools
+  *   - validating a connection to the database can be established
+  *   - logging
+  *
   * @param driverFqcn the fully-qualified class name of the JDBC driver to use
   */
 abstract class JdbcDatasourceModule[C <: JdbcConfig: DecodeJson](

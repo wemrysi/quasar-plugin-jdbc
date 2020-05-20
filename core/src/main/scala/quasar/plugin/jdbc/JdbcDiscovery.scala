@@ -74,13 +74,13 @@ final class JdbcDiscovery private (discoverableTableTypes: Option[ConnectionIO[N
   def topLevel: Stream[ConnectionIO, Either[SchemaName, TableName]] =
     allTables
       .scan((Set.empty[SchemaName], None: Option[Either[SchemaName, TableName]])) {
-        case ((seen, _), TableMeta(_, Some(schema))) =>
+        case ((seen, _), TableMeta(_, Some(schema), _)) =>
           if (seen(schema))
             (seen, None)
           else
             (seen + schema, Some(Left(schema)))
 
-        case ((seen, _), TableMeta(table, None)) =>
+        case ((seen, _), TableMeta(table, None, _)) =>
           (seen, Some(Right(table)))
       }
       .map(_._2)
@@ -110,7 +110,8 @@ final class JdbcDiscovery private (discoverableTableTypes: Option[ConnectionIO[N
     new Read[TableMeta](Nil, (rs, _) =>
       TableMeta(
         TableName(rs.getString(3)),
-        Option(rs.getString(2)).map(SchemaName)))
+        Option(rs.getString(2)).map(SchemaName),
+        TableType(rs.getString(4))))
 
   /** Only usable with the ResultSet returned from `DatabaseMetaData#getColumns`
     *
@@ -206,7 +207,10 @@ final class JdbcDiscovery private (discoverableTableTypes: Option[ConnectionIO[N
 }
 
 object JdbcDiscovery {
-  final case class TableMeta(table: TableName, schema: Option[SchemaName])
+  final case class TableMeta(
+    table: TableName,
+    schema: Option[SchemaName],
+    tableType: TableType)
 
   final case class ColumnMeta(
       name: ColumnName,

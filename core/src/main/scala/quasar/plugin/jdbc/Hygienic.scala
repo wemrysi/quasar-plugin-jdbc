@@ -18,7 +18,13 @@ package quasar.plugin.jdbc
 
 import java.lang.String
 
+import doobie.Fragment
+
 /** A value that is safe to substitute into a SQL query string. */
 trait Hygienic {
   def forSql: String
+
+  def fr: Fragment = Fragment.const(forSql)
+
+  def fr0: Fragment = Fragment.const0(forSql)
 }

@@ -16,6 +16,18 @@
 
 package quasar.plugin.jdbc
 
+import scala.StringContext
 import java.lang.String
 
+import cats.{Order, Show}
+import cats.instances.string._
+
 final case class TableType(name: String) extends scala.AnyVal
+
+object TableType {
+  implicit val tableTypeOrder: Order[TableType] =
+    Order.by(_.name.toLowerCase)
+
+  implicit val tableTypeShow: Show[TableType] =
+    Show.show(tt => s"TableType($tt)")
+}
