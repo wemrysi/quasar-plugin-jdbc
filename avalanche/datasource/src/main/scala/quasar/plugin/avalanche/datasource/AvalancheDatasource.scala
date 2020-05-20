@@ -16,48 +16,42 @@
 
 package quasar.plugin.avalanche.datasource
 
+import quasar.plugin.avalanche.AvalancheHygiene
+
 import quasar.plugin.jdbc._
 import quasar.plugin.jdbc.datasource._
 
-import java.lang.{String, Throwable}
+import java.lang.Throwable
 
 import cats.Defer
+import cats.data.NonEmptyList
 import cats.effect.Bracket
 
 import doobie._
 import doobie.implicits._
 
 import quasar.connector.MonadResourceErr
-import quasar.connector.datasource.LightweightDatasourceModule
+import quasar.connector.datasource.{LightweightDatasourceModule, Loader}
 
 import org.slf4s.Logger
 
-// Initial impl will use cursors, might experiment with select loops later, though we'll lose backpressure
 object AvalancheDatasource {
-  // How to best select rows
-  //
-  // 1) COPY INTO would be ideal, but only allows files, not streaming
-  //
-  // 2) INSERT INTO EXTERNAL CSV would also be good, but again only allows files or hdfs
-  //
-  // 3) Quote string types, convert boolean to {0,1} and numeric, temporal types to strings
-  //   + this should allow us to convert result sets to csv with reasonable performance
-  //   - likely slower than 1) or 2) if either was supported
-
-  def apply[F[_]](
+  def apply[F[_]: Bracket[?[_], Throwable]: Defer: MonadResourceErr](
       xa: Transactor[F],
       discovery: JdbcDiscovery,
       log: Logger,
       logHandler: LogHandler)
       : LightweightDatasourceModule.DS[F] = {
 
-    // lookup columns for the table,
-    // for string types, emit verbatim? we need to quote and escape quotes in
-    // if it is temporal, use to_char with an appropriate format
-    // otherwise use char
-    //
-    // build a column list of
+    val loader =
+      (JdbcLoader(xa, discovery, AvalancheHygiene) _)
+        .compose(MaskedLoader[ConnectionIO](AvalancheHygiene))
+        .apply(AvalancheLoader(discovery, AvalancheHygiene, logHandler))
 
-    scala.Predef.???
+    JdbcDatasource(
+      xa,
+      discovery,
+      AvalancheDatasourceModule.kind,
+      NonEmptyList.one(Loader.Batch(loader)))
   }
 }

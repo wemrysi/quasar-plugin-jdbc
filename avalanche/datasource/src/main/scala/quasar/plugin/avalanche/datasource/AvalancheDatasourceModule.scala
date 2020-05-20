@@ -16,8 +16,11 @@
 
 package quasar.plugin.avalanche.datasource
 
-import scala.{None, Option}
+import scala.{Option, Some}
+import scala.collection.immutable.SortedSet
 import scala.util.Either
+
+import java.lang.String
 
 import argonaut._, Argonaut._
 
@@ -39,9 +42,18 @@ import quasar.plugin.jdbc.datasource.JdbcDatasourceModule
 import org.slf4s.Logger
 
 object AvalancheDatasourceModule extends JdbcDatasourceModule[Config]("com.ingres.jdbc.IngresDriver") {
-  val DiscoverableTableTypes: Option[ConnectionIO[NonEmptySet[TableType]]] = None
 
   val kind = DatasourceType("avalanche", 1L)
+
+  val DiscoverableTableTypes: Option[ConnectionIO[NonEmptySet[TableType]]] =
+    Some(for {
+      catalog <- HC.getCatalog
+      rs <- HC.getMetaData(FDMD.getTableTypes)
+      names <- FC.embed(rs, HRS.build[SortedSet, String])
+      pruned = names.filterNot(_ == "SYSTEM TABLE")
+      default = NonEmptySet.of("TABLE", "VIEW")
+      discoverable = NonEmptySet.fromSet(pruned) getOrElse default
+    } yield discoverable.map(TableType(_)))
 
   def sanitizeConfig(config: Json): Json =
     config.as[Config].toOption

@@ -42,9 +42,22 @@ lazy val avalancheDatasource = project
   .dependsOn(core)
   .settings(
     name := "quasar-datasource-avalanche",
+
     quasarPluginName := "avalanche",
     quasarPluginQuasarVersion := quasarVersion.value,
     quasarPluginDatasourceFqcn := Some("quasar.plugin.avalanche.datasource.AvalancheDatasourceModule$"),
     quasarPluginDependencies ++= Seq(
-    ))
+      "org.slf4s" %% "slf4s-api" % "1.7.25",
+
+      "org.tpolecat" %% "doobie-core" % DoobieVersion,
+      "org.tpolecat" %% "doobie-hikari" % DoobieVersion
+    ),
+
+    // Assemble a "fat" jar consisting of the plugin and the unmanaged iijdbc.jar
+    assemblyExcludedJars in assembly := {
+      val cp = (fullClasspath in assembly).value
+      cp.filter(_.data.getName != "iijdbc.jar")
+    },
+    packageBin in Compile := (assembly in Compile).value
+  )
   .enablePlugins(QuasarPlugin)
