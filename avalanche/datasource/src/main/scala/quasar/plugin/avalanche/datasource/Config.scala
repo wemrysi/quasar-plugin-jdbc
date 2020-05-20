@@ -29,6 +29,25 @@ import cats.implicits._
 
 import quasar.plugin.jdbc.JdbcConfig
 
+// TODO: enumerate more db properties? some may not be desirable so might not want to allow full URI control
+//       like we don't want the end-user to be able to enable select loops if we aren't ready to handle them,
+//       etc
+// TODO: are there any properties we want to override/specify?
+//
+// Props to expose
+//
+// user: osUser
+// password: osPassword
+// role:
+// group:
+// dbms_user: dbmsUser
+// dbms_password: dbmsPassword
+// encryption:
+// vnode_usage: ???
+// timezone: ???
+//
+// @see https://docs.actian.com/avalanche/index.html#page/Connectivity%2FJDBC_Driver_Properties.htm%23ww243885
+//
 final case class Config(
     connectionUri: URI,
     maxConnections: Option[Int])

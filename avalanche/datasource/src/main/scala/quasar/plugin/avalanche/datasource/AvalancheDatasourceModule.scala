@@ -16,11 +16,12 @@
 
 package quasar.plugin.avalanche.datasource
 
+import scala.{None, Option}
 import scala.util.Either
 
 import argonaut._, Argonaut._
 
-import cats.Hash
+import cats.data.NonEmptySet
 import cats.effect._
 import cats.implicits._
 
@@ -28,15 +29,18 @@ import doobie._
 
 import eu.timepit.refined.auto._
 
-import io.chrisdavenport.log4cats.Logger
-
 import quasar.RateLimiting
 import quasar.api.datasource.DatasourceType
 import quasar.connector.{ByteStore, MonadResourceErr}
 import quasar.connector.datasource.LightweightDatasourceModule
+import quasar.plugin.jdbc.{JdbcDiscovery, TableType}
 import quasar.plugin.jdbc.datasource.JdbcDatasourceModule
 
-object AvalancheDatasourceModule extends JdbcDatasourceModule[Config]("org.some.avalanche.Driver") {
+import org.slf4s.Logger
+
+object AvalancheDatasourceModule extends JdbcDatasourceModule[Config]("com.ingres.jdbc.IngresDriver") {
+  val DiscoverableTableTypes: Option[ConnectionIO[NonEmptySet[TableType]]] = None
+
   val kind = DatasourceType("avalanche", 1L)
 
   def sanitizeConfig(config: Json): Json =
@@ -48,8 +52,14 @@ object AvalancheDatasourceModule extends JdbcDatasourceModule[Config]("org.some.
       transactor: Transactor[F],
       rateLimiter: RateLimiting[F, A],
       byteStore: ByteStore[F],
-      log: Logger[F],
+      log: Logger,
       logHandler: LogHandler)
-      : Resource[F, Either[InitError, LightweightDatasourceModule.DS[F]]] =
-    scala.Predef.???
+      : Resource[F, Either[InitError, LightweightDatasourceModule.DS[F]]] = {
+
+    val discovery = JdbcDiscovery(DiscoverableTableTypes)
+
+    AvalancheDatasource(transactor, discovery, log, logHandler)
+      .asRight[InitError]
+      .pure[Resource[F, ?]]
+  }
 }
