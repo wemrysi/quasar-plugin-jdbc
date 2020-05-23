@@ -22,13 +22,18 @@ import doobie._
 
 import fs2.Stream
 
+import qdata.QType
+
 import quasar.ScalarStages
+import quasar.common.data.RValue
 import quasar.connector.{DataFormat, QueryResult}
 import quasar.connector.datasource.BatchLoader
 import quasar.plugin.jdbc._
 import quasar.plugin.jdbc.datasource._
 
 object AvalancheLoader {
+  type I = AvalancheHygiene.HygienicIdent
+
   // How to best select rows
   //
   // 1) COPY INTO would be ideal, but only allows files, not streaming
@@ -38,43 +43,55 @@ object AvalancheLoader {
   // 3) Quote string types, convert boolean to {0,1} and numeric, temporal types to strings
   //   + this should allow us to convert result sets to csv with reasonable performance
   //   - likely slower than 1) or 2) if either was supported
-  def apply(
-      discovery: JdbcDiscovery,
-      hygiene: Hygiene,
-      logHandler: LogHandler)
-      : MaskedLoader[ConnectionIO, hygiene.HygienicIdent] = {
+  def apply(discovery: JdbcDiscovery, logHandler: LogHandler)
+      : MaskedLoader[ConnectionIO, I] = {
 
-    type I = hygiene.HygienicIdent
-
-    val csvFormat = DataFormat.SeparatedValues(
-      header = false,
-      row1 = '\r',
-      row2 = '\n',
-      record = ',',
-      openQuote = '"',
-      closeQuote = '"',
-      escape = '"')
-
-    // how do we handle escaping for CSV?
-    //  A: seems like it would be better to just deal with this in scala, rather than try at the db.
+    // 1. Need a type mapping function for (JdbcType, VendorTypeName) => Option[QType]
+    //   - What do we do in the `None` case?
+    //     - null for now?
+    //   - Using option shouldn't really affect performance as we're only doing this once per result set
     //
-    // tuning fetch size seems like it will be a thing
-
-    // GOAL: turn selected columns into strings, read them in chunks and render to csv
+    // 2. Write a function `((JdbcType, VendorType) => QType) => QDataDecode[ResultSet]`
     //
-    // find all columns, filter to just those selected
-    // if the column is textual, leave it alone
-    // if the column is numeric, leave it alone?
-    // if the column is temporal, convert it to a string
-    //   + this is easy on this side, as then all we have to do is handle the CSV encoding
-    //   - will it be less efficient from a server pov? I guess unless it is select *, probably still has to seek and stuff to drop colums?
-    //   - if it turns out to be less efficient, we can always move the temporal handling here
+    // 3. (ResultSet, (JdbcType, VendorType) => QType) => Stream[F, RValue]
 
+    // TODO: Update the ticket!!!!
+    //
+    // decided to implement QDataDecode and then just convert to RValue for now
+    //
+    // ipv4, ipv6 and UUID types will be represented as String, everything else
+    // should be representable without a loss of fidelity
     BatchLoader.Full[ConnectionIO, (I, Option[I], ColumnSelection[I]), QueryResult[ConnectionIO]] {
       case (table, schema, columns) =>
+        val dbObject0 =
+          schema.fold(table.fr0)(_.fr0 ++ Fragment.const0(".") ++ table.fr0)
+
+        val projections = columns match {
+          case ColumnSelection.Explcit(idents) =>
+            idents.map(_.fr0).intercalate(fr",")
+
+          case ColumnSelection.All => fr"*"
+        }
+
+        val sql =
+          fr"SELECT FOR READONLY" ++ projections ++ fr"FROM" ++ dbObject0
+
+        // fetch size
+        // read only
+        // other cursor settings?
+
         FC.pure(QueryResult.typed[ConnectionIO](csvFormat, Stream.empty, ScalarStages.Id))
     }
   }
+
+  def avalancheTypeToQType(jt: JdbcType, avalancheTypeName: String): Option[QType] =
+    None
+
+  def avalancheResultSetDecode: ResultSetIO[QDataDecode[ResultSet]]
+    scala.Predef.???
+
+  def rValueRead(decode: QDataDecode[ResultSet]): Read[RValue] =
+    scala.Predef.???
 
   ////
 
