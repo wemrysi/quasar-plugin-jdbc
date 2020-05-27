@@ -64,13 +64,12 @@ object AvalancheDatasourceModule extends JdbcDatasourceModule[Config]("com.ingre
       transactor: Transactor[F],
       rateLimiter: RateLimiting[F, A],
       byteStore: ByteStore[F],
-      log: Logger,
-      logHandler: LogHandler)
+      log: Logger)
       : Resource[F, Either[InitError, LightweightDatasourceModule.DS[F]]] = {
 
     val discovery = JdbcDiscovery(DiscoverableTableTypes)
 
-    AvalancheDatasource(transactor, discovery, log, logHandler)
+    AvalancheDatasource(transactor, discovery, log)
       .asRight[InitError]
       .pure[Resource[F, ?]]
   }

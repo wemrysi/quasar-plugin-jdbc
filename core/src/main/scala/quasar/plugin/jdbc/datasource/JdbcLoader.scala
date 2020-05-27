@@ -28,6 +28,7 @@ import cats.effect.Resource
 import cats.implicits._
 
 import doobie._
+import doobie.implicits._
 
 import quasar.api.resource.ResourcePath
 import quasar.connector.{MonadResourceErr, QueryResult, ResourceError => RE}
@@ -56,16 +57,18 @@ object JdbcLoader {
             case Right((schema, table)) => (table, Some(schema))
           }
 
-          val result = discovery.tableExists(table, schema) flatMap { exists =>
+          val result = Resource.liftF(discovery.tableExists(table, schema)) flatMap { exists =>
             if (exists)
               k((hygiene.hygienicIdent(table), schema.map(hygiene.hygienicIdent(_)), ir.stages))
                 .map(_.asRight[RE])
             else
-              FC.pure(RE.pathNotFound[RE](ir.path).asLeft[QueryResult[ConnectionIO]])
+              RE.pathNotFound[RE](ir.path)
+                .asLeft[QueryResult[ConnectionIO]]
+                .pure[Resource[ConnectionIO, ?]]
           }
 
-          xa.strategicConnection evalMap { c =>
-            xa.runWith(c).apply(result) flatMap {
+          xa.strategicConnection flatMap { c =>
+            result.mapK(xa.runWith(c)) evalMap {
               case Left(re) =>
                 MonadResourceErr[F].raiseError[QueryResult[F]](re)
 

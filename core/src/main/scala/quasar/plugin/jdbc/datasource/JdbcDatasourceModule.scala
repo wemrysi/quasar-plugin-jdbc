@@ -16,7 +16,7 @@
 
 package quasar.plugin.jdbc.datasource
 
-import quasar.plugin.jdbc.{JdbcConfig, Redacted, Slf4sLogHandler}
+import quasar.plugin.jdbc.{JdbcConfig, Redacted}
 
 import java.lang.{Exception, RuntimeException, String}
 import java.net.URI
@@ -67,8 +67,7 @@ abstract class JdbcDatasourceModule[C <: JdbcConfig: DecodeJson](
       transactor: Transactor[F],
       rateLimiter: RateLimiting[F, A],
       byteStore: ByteStore[F],
-      log: Logger,
-      logHandler: LogHandler)
+      log: Logger)
       : Resource[F, Either[InitError, LightweightDatasourceModule.DS[F]]]
 
   ////
@@ -117,7 +116,7 @@ abstract class JdbcDatasourceModule[C <: JdbcConfig: DecodeJson](
 
       slog <- liftF(Sync[F].delay(LoggerFactory(s"quasar.plugin.$debugId")))
 
-      ds <- EitherT(jdbcDatasource(cfg, xa, rateLimiter, byteStore, slog, Slf4sLogHandler(slog)))
+      ds <- EitherT(jdbcDatasource(cfg, xa, rateLimiter, byteStore, slog))
 
       _ <- liftF(Sync[F].delay(slog.info(s"Initialized datasource $ident: tag = $tag, config = ${sanitizeConfig(config)}")))
     } yield ds

@@ -18,11 +18,13 @@ package quasar.plugin.jdbc
 
 import scala.Option
 
+import cats.effect.Resource
+
 import quasar.ScalarStages
 import quasar.connector.QueryResult
 import quasar.connector.datasource.BatchLoader
 
 package object datasource {
-  type JdbcLoader[F[_], A] = BatchLoader[F, (A, Option[A], ScalarStages), QueryResult[F]]
-  type MaskedLoader[F[_], A] = BatchLoader[F, (A, Option[A], ColumnSelection[A]), QueryResult[F]]
+  type JdbcLoader[F[_], A] = BatchLoader[Resource[F, ?], (A, Option[A], ScalarStages), QueryResult[F]]
+  type MaskedLoader[F[_], A] = BatchLoader[Resource[F, ?], (A, Option[A], ColumnSelection[A]), QueryResult[F]]
 }

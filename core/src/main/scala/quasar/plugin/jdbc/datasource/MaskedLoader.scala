@@ -20,9 +20,9 @@ import quasar.plugin.jdbc._
 
 import scala.{None, Option, Some}
 
-import cats.Functor
+import cats.Applicative
 import cats.data.Kleisli
-import cats.syntax.functor._
+import cats.effect.Resource
 
 import quasar.ScalarStages
 import quasar.connector.QueryResult
@@ -34,11 +34,11 @@ object MaskedLoader {
     * @param hygiene a means of obtaining hygienic identifiers
     * @param loader the loader to transform
     */
-  def apply[F[_]: Functor](
+  def apply[F[_]: Applicative](
       hygiene: Hygiene)(
       loader: MaskedLoader[F, hygiene.HygienicIdent])
       : JdbcLoader[F, hygiene.HygienicIdent] =
-    loader.transform(k => Kleisli[F, (hygiene.HygienicIdent, Option[hygiene.HygienicIdent], ScalarStages), QueryResult[F]] {
+    loader.transform(k => Kleisli[Resource[F, ?], (hygiene.HygienicIdent, Option[hygiene.HygienicIdent], ScalarStages), QueryResult[F]] {
       case (table, schema, stages) =>
         MaskedColumns(stages) match {
           case Some((cols, moreStages)) =>

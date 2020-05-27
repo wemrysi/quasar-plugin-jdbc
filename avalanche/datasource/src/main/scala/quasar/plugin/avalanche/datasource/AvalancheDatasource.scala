@@ -21,6 +21,7 @@ import quasar.plugin.avalanche.AvalancheHygiene
 import quasar.plugin.jdbc._
 import quasar.plugin.jdbc.datasource._
 
+import scala.Int
 import java.lang.Throwable
 
 import cats.Defer
@@ -36,17 +37,18 @@ import quasar.connector.datasource.{LightweightDatasourceModule, Loader}
 import org.slf4s.Logger
 
 object AvalancheDatasource {
+  val DefaultResultChunkSize: Int = 2048
+
   def apply[F[_]: Bracket[?[_], Throwable]: Defer: MonadResourceErr](
       xa: Transactor[F],
       discovery: JdbcDiscovery,
-      log: Logger,
-      logHandler: LogHandler)
+      log: Logger)
       : LightweightDatasourceModule.DS[F] = {
 
     val loader =
       (JdbcLoader(xa, discovery, AvalancheHygiene) _)
         .compose(MaskedLoader[ConnectionIO](AvalancheHygiene))
-        .apply(AvalancheLoader(discovery, AvalancheHygiene, logHandler))
+        .apply(AvalancheLoader(discovery, DefaultResultChunkSize))
 
     JdbcDatasource(
       xa,

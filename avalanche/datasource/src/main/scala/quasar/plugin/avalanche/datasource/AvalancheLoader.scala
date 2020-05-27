@@ -16,21 +16,31 @@
 
 package quasar.plugin.avalanche.datasource
 
-import scala.Option
+import slamdata.Predef._
+
+import quasar.plugin.avalanche._
+
+import java.sql.ResultSet
+
+import cats.effect.Resource
+import cats.implicits._
 
 import doobie._
+import doobie.enum.JdbcType
+import doobie.implicits._
 
 import fs2.Stream
 
-import qdata.QType
+import qdata.{QData, QDataDecode, QType}
 
 import quasar.ScalarStages
 import quasar.common.data.RValue
-import quasar.connector.{DataFormat, QueryResult}
+import quasar.connector.QueryResult
 import quasar.connector.datasource.BatchLoader
 import quasar.plugin.jdbc._
 import quasar.plugin.jdbc.datasource._
 
+// TODO: Logging
 object AvalancheLoader {
   type I = AvalancheHygiene.HygienicIdent
 
@@ -43,7 +53,7 @@ object AvalancheLoader {
   // 3) Quote string types, convert boolean to {0,1} and numeric, temporal types to strings
   //   + this should allow us to convert result sets to csv with reasonable performance
   //   - likely slower than 1) or 2) if either was supported
-  def apply(discovery: JdbcDiscovery, logHandler: LogHandler)
+  def apply(discovery: JdbcDiscovery, resultChunkSize: Int)
       : MaskedLoader[ConnectionIO, I] = {
 
     // 1. Need a type mapping function for (JdbcType, VendorTypeName) => Option[QType]
@@ -55,44 +65,49 @@ object AvalancheLoader {
     //
     // 3. (ResultSet, (JdbcType, VendorType) => QType) => Stream[F, RValue]
 
-    // TODO: Update the ticket!!!!
-    //
     // decided to implement QDataDecode and then just convert to RValue for now
     //
     // ipv4, ipv6 and UUID types will be represented as String, everything else
     // should be representable without a loss of fidelity
-    BatchLoader.Full[ConnectionIO, (I, Option[I], ColumnSelection[I]), QueryResult[ConnectionIO]] {
+    BatchLoader.Full[Resource[ConnectionIO, ?], (I, Option[I], ColumnSelection[I]), QueryResult[ConnectionIO]] {
       case (table, schema, columns) =>
         val dbObject0 =
           schema.fold(table.fr0)(_.fr0 ++ Fragment.const0(".") ++ table.fr0)
 
         val projections = columns match {
-          case ColumnSelection.Explcit(idents) =>
+          case ColumnSelection.Explicit(idents) =>
             idents.map(_.fr0).intercalate(fr",")
 
           case ColumnSelection.All => fr"*"
         }
 
-        val sql =
-          fr"SELECT FOR READONLY" ++ projections ++ fr"FROM" ++ dbObject0
+        val query =
+          fr"SELECT" ++ projections ++ fr"FROM" ++ dbObject0
 
-        // fetch size
-        // read only
-        // other cursor settings?
+        val preparedStatement =
+          Resource.make(
+            FC.prepareStatement(
+              query.query[Unit].sql,
+              ResultSet.TYPE_FORWARD_ONLY,
+              ResultSet.CONCUR_READ_ONLY))(
+            FC.embed(_, FPS.close))
 
-        FC.pure(QueryResult.typed[ConnectionIO](csvFormat, Stream.empty, ScalarStages.Id))
+				// 1. Prepare statement
+				// 2. Set forward only
+        // 3. Build QDataDecode from result set metadata
+        // 4. Execute query, building decoder, converting to Read and then streaming via result set means?
+
+
+
+
+        // fetch size [will set based on chunk size]
+        // read only [done in query]
+        // other cursor settings [need to set forward only]
+
+        // do we need the result set to build the decoder? or can we write one for any result set?
+        //sql.query(rValueRead(avalancheResultSetDecode)
+
+        scala.Predef.???
     }
   }
-
-  def avalancheTypeToQType(jt: JdbcType, avalancheTypeName: String): Option[QType] =
-    None
-
-  def avalancheResultSetDecode: ResultSetIO[QDataDecode[ResultSet]]
-    scala.Predef.???
-
-  def rValueRead(decode: QDataDecode[ResultSet]): Read[RValue] =
-    scala.Predef.???
-
-  ////
-
 }
