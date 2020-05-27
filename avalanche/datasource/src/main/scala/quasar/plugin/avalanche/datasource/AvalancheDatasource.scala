@@ -37,7 +37,7 @@ import quasar.connector.datasource.{LightweightDatasourceModule, Loader}
 import org.slf4s.Logger
 
 object AvalancheDatasource {
-  val DefaultResultChunkSize: Int = 2048
+  val DefaultResultChunkSize: Int = 4096
 
   def apply[F[_]: Bracket[?[_], Throwable]: Defer: MonadResourceErr](
       xa: Transactor[F],
@@ -48,7 +48,7 @@ object AvalancheDatasource {
     val loader =
       (JdbcLoader(xa, discovery, AvalancheHygiene) _)
         .compose(MaskedLoader[ConnectionIO](AvalancheHygiene))
-        .apply(AvalancheLoader(discovery, DefaultResultChunkSize))
+        .apply(AvalancheLoader(discovery, Slf4sLogHandler(log), DefaultResultChunkSize))
 
     JdbcDatasource(
       xa,
