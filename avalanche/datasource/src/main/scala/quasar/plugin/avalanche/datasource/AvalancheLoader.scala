@@ -33,6 +33,7 @@ import cats.effect.Resource
 import cats.implicits._
 
 import doobie._
+import doobie.enum.JdbcType
 import doobie.implicits._
 import doobie.util.log._
 
@@ -45,6 +46,7 @@ import quasar.connector.datasource.BatchLoader
 import quasar.plugin.jdbc._
 import quasar.plugin.jdbc.datasource._
 
+// TODO: Log unsupported columns
 // TODO: Extract general stuff to quasar.plugin.jdbc.datasource
 object AvalancheLoader {
   type I = AvalancheHygiene.HygienicIdent
@@ -78,6 +80,67 @@ object AvalancheLoader {
         load.map(QueryResult.parsed(QDataRValue, _, ScalarStages.Id))
     }
 
+  val SupportedJdbcTypes: Set[JdbcType] = {
+    import JdbcType._
+
+    Set(
+      BigInt,
+      Boolean,
+      Char,
+      Date,
+      Decimal,
+      Double,
+      Float,
+      Integer,
+      NChar,
+      Numeric,
+      NVarChar,
+      Real,
+      SmallInt,
+      Time,
+      TimeWithTimezone,
+      Timestamp,
+      TimestampWithTimezone,
+      TinyInt,
+      VarChar)
+  }
+
+  val SupportedAvalancheTypes: Set[String] =
+    Set("INTERVAL YEAR TO MONTH", "INTERVAL DAY TO SECOND", "MONEY", "IPV4", "IPV6", "UUID")
+
+  def isSupported(jdbcType: JdbcType, avalancheTypeName: String): Boolean =
+    SupportedJdbcTypes(jdbcType) || SupportedAvalancheTypes(avalancheTypeName)
+
+  def unsafeRValue(rs: ResultSet, col: Int, jdbcType: JdbcType, vendorName: String): RValue = {
+    import JdbcType._
+
+    def unlessNull[A](a: A)(f: A => RValue): RValue =
+      if (a == null) null else f(a)
+
+    jdbcType match {
+      case Char | NChar | NVarChar | VarChar => unlessNull(rs.getString(col))(RValue.rString(_))
+
+      case TinyInt | SmallInt | Integer | BigInt => unlessNull(rs.getLong(col))(RValue.rLong(_))
+
+      case Double | Float | Real => unlessNull(rs.getDouble(col))(RValue.rDouble(_))
+
+      case Decimal | Numeric => unlessNull(rs.getBigDecimal(col))(RValue.rNum(_))
+
+      case Boolean => unlessNull(rs.getBoolean(col))(RValue.rBoolean(_))
+
+//    case Date => ???
+
+//    case Time => ???
+
+//    case TimeWithTimezone => ???
+
+//    case Timestamp => ???
+
+//    case TimestampWithTimeZone => ???
+    }
+  }
+
+
   def getNextChunk[A: ClassTag](chunkSize: Int)(implicit A: Read[A]): ResultSetIO[Chunk[A]] =
     FRS raw { rs =>
       val c = new Array[A](chunkSize)
@@ -100,7 +163,8 @@ object AvalancheLoader {
 
   private def avalancheRValues(chunkSize: Int): Stream[ResultSetIO, RValue] =
     Stream.eval(FRS.getMetaData) flatMap { meta =>
-      resultStream(chunkSize)(implicitly[ClassTag[RValue]], AvalancheRValueRead(meta))
+      val read = AvalancheRValueRead(meta, (_, _) => false, (_, _, _, _) => null)
+      resultStream(chunkSize)(implicitly[ClassTag[RValue]], read)
     }
 
   private def executeLogged[A](
