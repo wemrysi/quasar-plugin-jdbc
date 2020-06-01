@@ -37,11 +37,29 @@ lazy val core = project
       "org.tpolecat" %% "doobie-hikari" % DoobieVersion
     ))
 
+
 lazy val avalancheDatasource = project
   .in(file("avalanche/datasource"))
   .dependsOn(core)
   .settings(
     name := "quasar-datasource-avalanche",
+
+    initialCommands in console := """
+      import slamdata.Predef._
+
+      import doobie._
+      import doobie.implicits._
+      import doobie.util.ExecutionContexts
+
+      import cats._
+      import cats.data._
+      import cats.effect._
+      import cats.implicits._
+
+      implicit val contextShiftIO = IO.contextShift(ExecutionContexts.synchronous)
+
+      val syncBlocker = Blocker.liftExecutionContext(ExecutionContexts.synchronous)
+    """,
 
     quasarPluginName := "avalanche",
     quasarPluginQuasarVersion := quasarVersion.value,
