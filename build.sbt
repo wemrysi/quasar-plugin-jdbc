@@ -71,6 +71,7 @@ lazy val avalancheDatasource = project
       "org.tpolecat" %% "doobie-hikari" % DoobieVersion
     ),
 
+    // FIXME: can't be using this in prod
     // Assemble a "fat" jar consisting of the plugin and the unmanaged iijdbc.jar
     assemblyExcludedJars in assembly := {
       val cp = (fullClasspath in assembly).value

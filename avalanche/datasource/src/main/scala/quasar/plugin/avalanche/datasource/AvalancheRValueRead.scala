@@ -42,8 +42,8 @@ object AvalancheRValueRead {
     *                    vendor type can be represented as an RValue.
     * @param unsafeRValue a function that extracts an RValue from the specified
     *                     column in the provided `ResultSet`, having the given
-    *                     JDBC type and vendor type name. Will only be invoked
-    *                     for types where `isSupported` returns true. If the
+    *                     JDBC type and lowercase vendor type name. Will only be
+    *                     invoked for types where `isSupported` returns true. If the
     *                     `ResultSet` column result is `null`, this function
     *                     should return `null`.
     */
@@ -84,7 +84,7 @@ object AvalancheRValueRead {
 
     while (i <= size) {
       jdbcTypes(i) = JdbcType.fromInt(meta.getColumnType(i))
-      vendorTypeNames(i) = meta.getColumnTypeName(i)
+      vendorTypeNames(i) = meta.getColumnTypeName(i).toLowerCase
       columnLabels(i) = meta.getColumnLabel(i)
 
       structure =
@@ -94,7 +94,10 @@ object AvalancheRValueRead {
           unsupportedColumns += i
           structure.updated(
             columnLabels(i),
-            RValue.rString(unsupportedType(jdbcTypes(i), vendorTypeNames(i))))
+            RValue.rString(
+              unsupportedType(jdbcTypes(i),
+              vendorTypeNames(i),
+              meta.getColumnClassName(i))))
         }
 
       i += 1
@@ -104,6 +107,6 @@ object AvalancheRValueRead {
   }
 
   /** The value of a column using an unsupported type. */
-  def unsupportedType(jdbcType: JdbcType, vendorName: String): String =
-    s"<UNSUPPORTED COLUMN TYPE: ${jdbcType}($vendorName)>"
+  def unsupportedType(jdbcType: JdbcType, vendorName: String, className: String): String =
+    s"<UNSUPPORTED COLUMN TYPE: ${jdbcType}($vendorName): $className>"
 }

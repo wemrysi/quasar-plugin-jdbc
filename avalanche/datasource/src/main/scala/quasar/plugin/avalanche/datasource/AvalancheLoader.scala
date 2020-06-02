@@ -48,30 +48,30 @@ import quasar.plugin.jdbc.datasource._
 
 /*
 {
-  "a": "<UNSUPPORTED COLUMN TYPE: Char(char)>",
-  "b": "<UNSUPPORTED COLUMN TYPE: Char(nchar)>",
-  "c": "<UNSUPPORTED COLUMN TYPE: VarChar(varchar)>",
-  "d": "<UNSUPPORTED COLUMN TYPE: VarChar(nvarchar)>",
-  "e": "<UNSUPPORTED COLUMN TYPE: TinyInt(integer1)>",
-  "f": "<UNSUPPORTED COLUMN TYPE: SmallInt(smallint)>",
-  "g": "<UNSUPPORTED COLUMN TYPE: Integer(integer)>",
-  "h": "<UNSUPPORTED COLUMN TYPE: BigInt(bigint)>",
-  "i": "<UNSUPPORTED COLUMN TYPE: Decimal(decimal)>",
-  "j": "<UNSUPPORTED COLUMN TYPE: Double(float)>",
-  "l": "<UNSUPPORTED COLUMN TYPE: Date(ansidate)>",
-  "m": "<UNSUPPORTED COLUMN TYPE: Time(time without time zone)>",
-  "n": "<UNSUPPORTED COLUMN TYPE: Time(time with time zone)>",
-  "o": "<UNSUPPORTED COLUMN TYPE: Time(time with local time zone)>",
-  "p": "<UNSUPPORTED COLUMN TYPE: Timestamp(timestamp without time zone)>",
-  "q": "<UNSUPPORTED COLUMN TYPE: Timestamp(timestamp with time zone)>",
-  "r": "<UNSUPPORTED COLUMN TYPE: Timestamp(timestamp with local time zone)>",
-  "s": "<UNSUPPORTED COLUMN TYPE: VarChar(interval year to month)>",
-  "t": "<UNSUPPORTED COLUMN TYPE: VarChar(interval day to second)>",
-  "u": "<UNSUPPORTED COLUMN TYPE: Decimal(money)>",
-  "v": "<UNSUPPORTED COLUMN TYPE: Binary(ipv4)>",
-  "w": "<UNSUPPORTED COLUMN TYPE: Binary(ipv6)>",
-  "x": "<UNSUPPORTED COLUMN TYPE: Binary(uuid)>",
-  "y": "<UNSUPPORTED COLUMN TYPE: Boolean(boolean)>"
+  "a": "<UNSUPPORTED COLUMN TYPE: Char(char): java.lang.String>",
+  "b": "<UNSUPPORTED COLUMN TYPE: Char(nchar): java.lang.String>",
+  "c": "<UNSUPPORTED COLUMN TYPE: VarChar(varchar): java.lang.String>",
+  "d": "<UNSUPPORTED COLUMN TYPE: VarChar(nvarchar): java.lang.String>",
+  "e": "<UNSUPPORTED COLUMN TYPE: TinyInt(integer1): java.lang.Integer>",
+  "f": "<UNSUPPORTED COLUMN TYPE: SmallInt(smallint): java.lang.Integer>",
+  "g": "<UNSUPPORTED COLUMN TYPE: Integer(integer): java.lang.Integer>",
+  "h": "<UNSUPPORTED COLUMN TYPE: BigInt(bigint): java.lang.Long>",
+  "i": "<UNSUPPORTED COLUMN TYPE: Decimal(decimal): java.math.BigDecimal>",
+  "j": "<UNSUPPORTED COLUMN TYPE: Double(float): java.lang.Double>",
+  "l": "<UNSUPPORTED COLUMN TYPE: Date(ansidate): java.sql.Date>",
+  "m": "<UNSUPPORTED COLUMN TYPE: Time(time without time zone): java.sql.Time>",
+  "n": "<UNSUPPORTED COLUMN TYPE: Time(time with time zone): java.sql.Time>",
+  "o": "<UNSUPPORTED COLUMN TYPE: Time(time with local time zone): java.sql.Time>",
+  "p": "<UNSUPPORTED COLUMN TYPE: Timestamp(timestamp without time zone): java.sql.Timestamp>",
+  "q": "<UNSUPPORTED COLUMN TYPE: Timestamp(timestamp with time zone): java.sql.Timestamp>",
+  "r": "<UNSUPPORTED COLUMN TYPE: Timestamp(timestamp with local time zone): java.sql.Timestamp>",
+  "s": "<UNSUPPORTED COLUMN TYPE: VarChar(interval year to month): java.lang.String>",
+  "t": "<UNSUPPORTED COLUMN TYPE: VarChar(interval day to second): java.lang.String>",
+  "u": "<UNSUPPORTED COLUMN TYPE: Decimal(money): java.math.BigDecimal>",
+  "v": "<UNSUPPORTED COLUMN TYPE: Binary(ipv4): [B>",
+  "w": "<UNSUPPORTED COLUMN TYPE: Binary(ipv6): [B>",
+  "x": "<UNSUPPORTED COLUMN TYPE: Binary(uuid): [B>",
+  "y": "<UNSUPPORTED COLUMN TYPE: Boolean(boolean): java.lang.Boolean>"
 }
 */
 
@@ -135,10 +135,10 @@ object AvalancheLoader {
   }
 
   val SupportedAvalancheTypes: Set[String] =
-    Set("INTERVAL YEAR TO MONTH", "INTERVAL DAY TO SECOND", "MONEY", "IPV4", "IPV6", "UUID")
+    Set("interval year to month", "interval day to second", "money", "ipv4", "ipv6", "uuid")
 
   def isSupported(jdbcType: JdbcType, avalancheTypeName: String): Boolean =
-    SupportedJdbcTypes(jdbcType) || SupportedAvalancheTypes(avalancheTypeName)
+    SupportedJdbcTypes(jdbcType) || SupportedAvalancheTypes(avalancheTypeName.toLowerCase)
 
   def unsafeRValue(rs: ResultSet, col: Int, jdbcType: JdbcType, vendorName: String): RValue = {
     import JdbcType._
@@ -157,15 +157,16 @@ object AvalancheLoader {
 
       case Boolean => unlessNull(rs.getBoolean(col))(RValue.rBoolean(_))
 
-//    case Date => ???
+      case Date => unlessNull(rs.getDate(col))(d => RValue.rLocalDate(d.toLocalDate))
 
-//    case Time => ???
+      // TODO: Timezone handling?
+      case Time | TimeWithTimezone=>
+        unlessNull(rs.getTime(col))(t => RValue.rLocalTime(t.toLocalTime))
 
-//    case TimeWithTimezone => ???
-
-//    case Timestamp => ???
-
-//    case TimestampWithTimeZone => ???
+      // TODO: Timezone handling?
+      case Timestamp | TimestampWithTimeZone =>
+        unlessNull(rs.getTimestamp(col))(ts =>
+          RValue.rOffsetDateTime(ts.toInstant.atOffset(ZoneOffset.UTC)))
     }
   }
 
