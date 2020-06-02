@@ -46,6 +46,35 @@ import quasar.connector.datasource.BatchLoader
 import quasar.plugin.jdbc._
 import quasar.plugin.jdbc.datasource._
 
+/*
+{
+  "a": "<UNSUPPORTED COLUMN TYPE: Char(char)>",
+  "b": "<UNSUPPORTED COLUMN TYPE: Char(nchar)>",
+  "c": "<UNSUPPORTED COLUMN TYPE: VarChar(varchar)>",
+  "d": "<UNSUPPORTED COLUMN TYPE: VarChar(nvarchar)>",
+  "e": "<UNSUPPORTED COLUMN TYPE: TinyInt(integer1)>",
+  "f": "<UNSUPPORTED COLUMN TYPE: SmallInt(smallint)>",
+  "g": "<UNSUPPORTED COLUMN TYPE: Integer(integer)>",
+  "h": "<UNSUPPORTED COLUMN TYPE: BigInt(bigint)>",
+  "i": "<UNSUPPORTED COLUMN TYPE: Decimal(decimal)>",
+  "j": "<UNSUPPORTED COLUMN TYPE: Double(float)>",
+  "l": "<UNSUPPORTED COLUMN TYPE: Date(ansidate)>",
+  "m": "<UNSUPPORTED COLUMN TYPE: Time(time without time zone)>",
+  "n": "<UNSUPPORTED COLUMN TYPE: Time(time with time zone)>",
+  "o": "<UNSUPPORTED COLUMN TYPE: Time(time with local time zone)>",
+  "p": "<UNSUPPORTED COLUMN TYPE: Timestamp(timestamp without time zone)>",
+  "q": "<UNSUPPORTED COLUMN TYPE: Timestamp(timestamp with time zone)>",
+  "r": "<UNSUPPORTED COLUMN TYPE: Timestamp(timestamp with local time zone)>",
+  "s": "<UNSUPPORTED COLUMN TYPE: VarChar(interval year to month)>",
+  "t": "<UNSUPPORTED COLUMN TYPE: VarChar(interval day to second)>",
+  "u": "<UNSUPPORTED COLUMN TYPE: Decimal(money)>",
+  "v": "<UNSUPPORTED COLUMN TYPE: Binary(ipv4)>",
+  "w": "<UNSUPPORTED COLUMN TYPE: Binary(ipv6)>",
+  "x": "<UNSUPPORTED COLUMN TYPE: Binary(uuid)>",
+  "y": "<UNSUPPORTED COLUMN TYPE: Boolean(boolean)>"
+}
+*/
+
 // TODO: Log unsupported columns
 // TODO: Extract general stuff to quasar.plugin.jdbc.datasource
 object AvalancheLoader {
