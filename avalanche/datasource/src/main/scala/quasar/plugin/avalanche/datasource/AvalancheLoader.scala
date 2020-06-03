@@ -16,28 +16,23 @@
 
 package quasar.plugin.avalanche.datasource
 
-import slamdata.Predef._
-
 import quasar.plugin.avalanche._
 
-import scala.Predef.implicitly
-import scala.concurrent.duration._
-import scala.math
-import scala.reflect.ClassTag
+import scala._, Predef._
+import scala.annotation.switch
 
-import java.lang.System
-import java.sql.{PreparedStatement, ResultSet}
+import java.net.InetAddress
+import java.nio.ByteBuffer
+import java.sql.ResultSet
+import java.time.ZoneOffset
+import java.util.UUID
 
-import cats.~>
 import cats.effect.Resource
 import cats.implicits._
 
 import doobie._
 import doobie.enum.JdbcType
 import doobie.implicits._
-import doobie.util.log._
-
-import fs2.{Chunk, Stream}
 
 import quasar.ScalarStages
 import quasar.common.data.{QDataRValue, RValue}
@@ -76,9 +71,43 @@ import quasar.plugin.jdbc.datasource._
 */
 
 // TODO: Log unsupported columns
-// TODO: Extract general stuff to quasar.plugin.jdbc.datasource
 object AvalancheLoader {
+  import java.sql.Types._
+
   type I = AvalancheHygiene.HygienicIdent
+
+  val SupportedSqlTypes: Set[Int] =
+    Set(
+      BIGINT,
+      BOOLEAN,
+      CHAR,
+      DATE,
+      DECIMAL,
+      DOUBLE,
+      FLOAT,
+      INTEGER,
+      NCHAR,
+      NUMERIC,
+      NVARCHAR,
+      REAL,
+      SMALLINT,
+      TIME,
+      TIMESTAMP,
+      TINYINT,
+      VARCHAR)
+
+  // VARCHAR
+  val IntervalYearToMonth = "interval year to month"
+  val IntervalDayToSecond = "interval day to second"
+  // DECIMAL
+  val Money = "money"
+  // BINARY
+  val IPv4 = "ipv4"
+  val IPv6 = "ipv6"
+  val UUID = "uuid"
+
+  val SupportedAvalancheTypes: Set[VendorType] =
+    Set(IntervalYearToMonth, IntervalDayToSecond, Money, IPv4, IPv6, UUID)
 
   def apply(
       discovery: JdbcDiscovery,
@@ -97,151 +126,75 @@ object AvalancheLoader {
           case ColumnSelection.All => fr"*"
         }
 
-        val query =
-          fr"SELECT" ++ projections ++ fr"FROM" ++ dbObject0
+        val sql =
+          (fr"SELECT" ++ projections ++ fr"FROM" ++ dbObject0).query[Unit].sql
 
-        val load = executeLogged(
-          query.query[Unit].sql,
-          FPS.setFetchSize(resultChunkSize) *> FPS.executeQuery,
-          avalancheRValues(resultChunkSize),
-          logHandler)
+        val ps =
+          FC.prepareStatement(
+            sql,
+            ResultSet.TYPE_FORWARD_ONLY,
+            ResultSet.CONCUR_READ_ONLY)
 
-        load.map(QueryResult.parsed(QDataRValue, _, ScalarStages.Id))
+        val results =
+          loggedRValueQuery(sql, ps, resultChunkSize, logHandler)(
+            isSupported,
+            unsafeRValue)
+
+        results.map(QueryResult.parsed(QDataRValue, _, ScalarStages.Id))
     }
 
-  val SupportedJdbcTypes: Set[JdbcType] = {
-    import JdbcType._
+  def isSupported(sqlType: SqlType, avalancheType: VendorType): Boolean =
+    SupportedSqlTypes(sqlType) || SupportedAvalancheTypes(avalancheType)
 
-    Set(
-      BigInt,
-      Boolean,
-      Char,
-      Date,
-      Decimal,
-      Double,
-      Float,
-      Integer,
-      NChar,
-      Numeric,
-      NVarChar,
-      Real,
-      SmallInt,
-      Time,
-      TimeWithTimezone,
-      Timestamp,
-      TimestampWithTimezone,
-      TinyInt,
-      VarChar)
-  }
-
-  val SupportedAvalancheTypes: Set[String] =
-    Set("interval year to month", "interval day to second", "money", "ipv4", "ipv6", "uuid")
-
-  def isSupported(jdbcType: JdbcType, avalancheTypeName: String): Boolean =
-    SupportedJdbcTypes(jdbcType) || SupportedAvalancheTypes(avalancheTypeName.toLowerCase)
-
-  def unsafeRValue(rs: ResultSet, col: Int, jdbcType: JdbcType, vendorName: String): RValue = {
-    import JdbcType._
-
+  // TODO: Error handling?
+  def unsafeRValue(rs: ResultSet, col: ColumnNum, sqlType: SqlType, vendorType: VendorType): RValue = {
     def unlessNull[A](a: A)(f: A => RValue): RValue =
       if (a == null) null else f(a)
 
-    jdbcType match {
-      case Char | NChar | NVarChar | VarChar => unlessNull(rs.getString(col))(RValue.rString(_))
+    (sqlType: @switch) match {
+      // TODO: handle intervals and interpret into DateTimeInterval
+      case CHAR | NCHAR | NVARCHAR | VARCHAR => unlessNull(rs.getString(col))(RValue.rString(_))
 
-      case TinyInt | SmallInt | Integer | BigInt => unlessNull(rs.getLong(col))(RValue.rLong(_))
+      case TINYINT | SMALLINT | INTEGER | BIGINT => unlessNull(rs.getLong(col))(RValue.rLong(_))
 
-      case Double | Float | Real => unlessNull(rs.getDouble(col))(RValue.rDouble(_))
+      case DOUBLE | FLOAT | REAL => unlessNull(rs.getDouble(col))(RValue.rDouble(_))
 
-      case Decimal | Numeric => unlessNull(rs.getBigDecimal(col))(RValue.rNum(_))
+      case DECIMAL | NUMERIC => unlessNull(rs.getBigDecimal(col))(RValue.rNum(_))
 
-      case Boolean => unlessNull(rs.getBoolean(col))(RValue.rBoolean(_))
+      case BOOLEAN => unlessNull(rs.getBoolean(col))(RValue.rBoolean(_))
 
-      case Date => unlessNull(rs.getDate(col))(d => RValue.rLocalDate(d.toLocalDate))
+      case DATE => unlessNull(rs.getDate(col))(d => RValue.rLocalDate(d.toLocalDate))
 
       // TODO: Timezone handling?
-      case Time | TimeWithTimezone=>
+      case TIME =>
         unlessNull(rs.getTime(col))(t => RValue.rLocalTime(t.toLocalTime))
 
       // TODO: Timezone handling?
-      case Timestamp | TimestampWithTimeZone =>
-        unlessNull(rs.getTimestamp(col))(ts =>
-          RValue.rOffsetDateTime(ts.toInstant.atOffset(ZoneOffset.UTC)))
+      case TIMESTAMP =>
+        unlessNull(rs.getTimestamp(col)) { ts =>
+          RValue.rOffsetDateTime(ts.toInstant.atOffset(ZoneOffset.UTC))
+        }
+
+      case otherSql => vendorType match {
+//      case IntervalYearToMonth => ???
+
+//      case IntervalDayToSecond => ???
+
+        // TODO: Parsing the bytes directly would eliminate the `InetAddress` allocation
+        case IPv4 | IPv6 =>
+          unlessNull(rs.getBytes(col)) { bs =>
+            RValue.rString(InetAddress.getByAddress(bs).getHostAddress)
+          }
+
+        case UUID =>
+          unlessNull(rs.getBytes(col)) { bs =>
+            val bb = ByteBuffer.wrap(bs)
+            RValue.rString((new UUID(bb.getLong, bb.getLong)).toString)
+          }
+
+        case otherVendor =>
+          RValue.rString(unsupportedColumnTypeMsg(JdbcType.fromInt(otherSql), otherVendor))
+      }
     }
   }
-
-
-  def getNextChunk[A: ClassTag](chunkSize: Int)(implicit A: Read[A]): ResultSetIO[Chunk[A]] =
-    FRS raw { rs =>
-      val c = new Array[A](chunkSize)
-      var n = 0
-
-      while (n < chunkSize && rs.next) {
-        c(n) = A.unsafeGet(rs, 1)
-        n += 1
-      }
-
-      Chunk.boxed(c, 0, n)
-    }
-
-  def resultStream[A: ClassTag: Read](chunkSize: Int): Stream[ResultSetIO, A] =
-    Stream.repeatEval(getNextChunk(chunkSize))
-      .takeWhile(_.nonEmpty)
-      .flatMap(Stream.chunk(_))
-
-  ////
-
-  private def avalancheRValues(chunkSize: Int): Stream[ResultSetIO, RValue] =
-    Stream.eval(FRS.getMetaData) flatMap { meta =>
-      val read = AvalancheRValueRead(meta, (_, _) => false, (_, _, _, _) => null)
-      resultStream(chunkSize)(implicitly[ClassTag[RValue]], read)
-    }
-
-  private def executeLogged[A](
-      sql: String,
-      execute: PreparedStatementIO[ResultSet],
-      results: Stream[ResultSetIO, A],
-      logHandler: LogHandler)
-      : Resource[ConnectionIO, Stream[ConnectionIO, A]] = {
-
-    def diff(a: Long, b: Long) = FiniteDuration(math.abs(a - b), NANOSECONDS)
-    def log(e: LogEvent) = FC.delay(logHandler.unsafeRun(e))
-    val now = FC.delay(System.nanoTime)
-
-    for {
-      t0 <- Resource.liftF(now)
-
-      ps <- prepared(sql)
-
-      er <- Resource.make(FC.embed(ps, execute))(FC.embed(_, FRS.close)).attempt
-
-      t1 <- Resource.liftF(now)
-
-      rs <- er.liftTo[Resource[ConnectionIO, ?]] onError {
-        case e => Resource.liftF(log(ExecFailure(sql, Nil, diff(t1, t0), e)))
-      }
-
-      as = results.onFinalize(FRS.close).translate(rsEmbedK(rs)) onError {
-        case e => Stream.eval(for {
-          t2 <- now
-          _ <- log(ProcessingFailure(sql, Nil, diff(t1, t0), diff(t2, t1), e))
-        } yield ())
-      }
-
-      logSuccess = now flatMap { t2 =>
-        log(Success(sql, Nil, diff(t1, t0), diff(t2, t1)))
-      }
-    } yield as ++ Stream.eval_(logSuccess)
-  }
-
-  private def prepared(sql: String): Resource[ConnectionIO, PreparedStatement] =
-    Resource.make(
-      FC.prepareStatement(
-        sql,
-        ResultSet.TYPE_FORWARD_ONLY,
-        ResultSet.CONCUR_READ_ONLY))(
-      FC.embed(_, FPS.close))
-
-  private def rsEmbedK(rs: ResultSet): ResultSetIO ~> ConnectionIO =
-    λ[ResultSetIO ~> ConnectionIO](FC.embed(rs, _))
 }
