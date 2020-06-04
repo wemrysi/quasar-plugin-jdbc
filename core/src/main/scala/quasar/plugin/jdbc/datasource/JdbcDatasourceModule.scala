@@ -16,7 +16,8 @@
 
 package quasar.plugin.jdbc.datasource
 
-import quasar.plugin.jdbc.{JdbcConfig, Redacted}
+import quasar.plugin.jdbc.Redacted
+import quasar.plugin.jdbc.config._
 
 import java.lang.{Exception, RuntimeException, String}
 import java.net.URI
@@ -31,7 +32,7 @@ import scala.util.control.NonFatal
 import argonaut._, Argonaut._
 
 import cats.Hash
-import cats.data.EitherT
+import cats.data.{EitherT, NonEmptyList}
 import cats.effect._
 import cats.implicits._
 
@@ -53,14 +54,16 @@ import org.slf4s.{Logger, LoggerFactory}
   *   - constructing a pooled `Transactor` along with the necessary threadpools
   *   - validating a connection to the database can be established
   *   - logging
-  *
-  * @param driverFqcn the fully-qualified class name of the JDBC driver to use
   */
-abstract class JdbcDatasourceModule[C <: JdbcConfig: DecodeJson](
-    driverFqcn: String)
-    extends LightweightDatasourceModule {
+abstract class JdbcDatasourceModule[C: DecodeJson] extends LightweightDatasourceModule {
 
   type InitError = DE.InitializationError[Json]
+
+  /** Returns the transactor configuration to use for the datasource having
+    * the specified configuration or a list of errors describing why a
+    * transactor could not be configured.
+    */
+  def transactorConfig(config: C): Either[NonEmptyList[String], TransactorConfig]
 
   def jdbcDatasource[F[_]: ConcurrentEffect: ContextShift: MonadResourceErr: Timer, A](
       config: C,
@@ -99,10 +102,11 @@ abstract class JdbcDatasourceModule[C <: JdbcConfig: DecodeJson](
     val init = for {
       cfg <- EitherT(cfg0.pure[Resource[F, ?]])
 
+      xaCfg <- EitherT(transactorConfig(cfg).leftMap
+
       tag <- liftF(Sync[F].delay(Random.alphanumeric.take(6).mkString))
 
       debugId = s"datasource.$ident.$tag"
-      connPoolSize = cfg.maxConcurrentConnections
 
       awaitPool <- EitherT.right(awaitConnPool[F](s"$debugId.await", connPoolSize))
       xaPool <- EitherT.right(transactPool[F](s"$debugId.transact"))
@@ -138,11 +142,11 @@ abstract class JdbcDatasourceModule[C <: JdbcConfig: DecodeJson](
 
   private def connectionInvalid(c: Json): InitError =
     DE.connectionFailed[Json, InitError](
-      kind, c, new RuntimeException("Connection is invalid."))
+      kind, c, new RuntimeException("Database connection is invalid."))
 
   private def hikariTransactor[F[_]: Async: ContextShift](
-      connUri: URI,
-      connPoolSize: Int,
+      id: String,
+      config: TransactorConfig,
       connectPool: ExecutionContext,
       xaBlocker: Blocker)
       : Resource[F, HikariTransactor[F]] = {
