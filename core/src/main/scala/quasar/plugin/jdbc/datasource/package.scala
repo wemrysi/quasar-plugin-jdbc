@@ -85,12 +85,16 @@ package object datasource {
     def log(e: LogEvent) = FC.delay(logHandler.unsafeRun(e))
     val now = FC.delay(System.nanoTime)
 
+    val prepR =
+      Resource.make(prepare)(FC.embed(_, FPS.close))
+
+    def execR(ps: PreparedStatement) =
+      Resource.make(FC.embed(ps, execute))(FC.embed(_, FRS.close))
+
     for {
       t0 <- Resource.liftF(now)
 
-      ps <- Resource.make(prepare)(FC.embed(_, FPS.close))
-
-      er <- Resource.make(FC.embed(ps, execute))(FC.embed(_, FRS.close)).attempt
+      er <- prepR.flatMap(execR).attempt
 
       t1 <- Resource.liftF(now)
 
@@ -111,6 +115,7 @@ package object datasource {
     } yield as ++ Stream.eval_(logSuccess)
   }
 
+  // TODO: Log unsupported columns
   def loggedRValueQuery(
       sql: String,
       prepare: ConnectionIO[PreparedStatement],

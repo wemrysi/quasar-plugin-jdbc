@@ -21,10 +21,14 @@ import quasar.plugin.avalanche._
 import scala._, Predef._
 import scala.annotation.switch
 
+import java.lang.CharSequence
 import java.net.InetAddress
 import java.nio.ByteBuffer
 import java.sql.ResultSet
-import java.time.ZoneOffset
+import java.text.ParsePosition
+import java.time.{Duration, Period, ZoneOffset}
+import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoField
 import java.util.UUID
 
 import cats.effect.Resource
@@ -34,6 +38,8 @@ import doobie._
 import doobie.enum.JdbcType
 import doobie.implicits._
 
+import qdata.time.DateTimeInterval
+
 import quasar.ScalarStages
 import quasar.common.data.{QDataRValue, RValue}
 import quasar.connector.QueryResult
@@ -41,42 +47,41 @@ import quasar.connector.datasource.BatchLoader
 import quasar.plugin.jdbc._
 import quasar.plugin.jdbc.datasource._
 
-/*
-{
-  "a": "<UNSUPPORTED COLUMN TYPE: Char(char): java.lang.String>",
-  "b": "<UNSUPPORTED COLUMN TYPE: Char(nchar): java.lang.String>",
-  "c": "<UNSUPPORTED COLUMN TYPE: VarChar(varchar): java.lang.String>",
-  "d": "<UNSUPPORTED COLUMN TYPE: VarChar(nvarchar): java.lang.String>",
-  "e": "<UNSUPPORTED COLUMN TYPE: TinyInt(integer1): java.lang.Integer>",
-  "f": "<UNSUPPORTED COLUMN TYPE: SmallInt(smallint): java.lang.Integer>",
-  "g": "<UNSUPPORTED COLUMN TYPE: Integer(integer): java.lang.Integer>",
-  "h": "<UNSUPPORTED COLUMN TYPE: BigInt(bigint): java.lang.Long>",
-  "i": "<UNSUPPORTED COLUMN TYPE: Decimal(decimal): java.math.BigDecimal>",
-  "j": "<UNSUPPORTED COLUMN TYPE: Double(float): java.lang.Double>",
-  "l": "<UNSUPPORTED COLUMN TYPE: Date(ansidate): java.sql.Date>",
-  "m": "<UNSUPPORTED COLUMN TYPE: Time(time without time zone): java.sql.Time>",
-  "n": "<UNSUPPORTED COLUMN TYPE: Time(time with time zone): java.sql.Time>",
-  "o": "<UNSUPPORTED COLUMN TYPE: Time(time with local time zone): java.sql.Time>",
-  "p": "<UNSUPPORTED COLUMN TYPE: Timestamp(timestamp without time zone): java.sql.Timestamp>",
-  "q": "<UNSUPPORTED COLUMN TYPE: Timestamp(timestamp with time zone): java.sql.Timestamp>",
-  "r": "<UNSUPPORTED COLUMN TYPE: Timestamp(timestamp with local time zone): java.sql.Timestamp>",
-  "s": "<UNSUPPORTED COLUMN TYPE: VarChar(interval year to month): java.lang.String>",
-  "t": "<UNSUPPORTED COLUMN TYPE: VarChar(interval day to second): java.lang.String>",
-  "u": "<UNSUPPORTED COLUMN TYPE: Decimal(money): java.math.BigDecimal>",
-  "v": "<UNSUPPORTED COLUMN TYPE: Binary(ipv4): [B>",
-  "w": "<UNSUPPORTED COLUMN TYPE: Binary(ipv6): [B>",
-  "x": "<UNSUPPORTED COLUMN TYPE: Binary(uuid): [B>",
-  "y": "<UNSUPPORTED COLUMN TYPE: Boolean(boolean): java.lang.Boolean>"
-}
-*/
-
-// TODO: Log unsupported columns
+/** JdbcType(Avalanche type name): Class repr
+  * -----------------------------------------
+  * Char(char): java.lang.String
+  * Char(nchar): java.lang.String
+  * VarChar(varchar): java.lang.String
+  * VarChar(nvarchar): java.lang.String
+  * TinyInt(integer1): java.lang.Integer
+  * SmallInt(smallint): java.lang.Integer
+  * Integer(integer): java.lang.Integer
+  * BigInt(bigint): java.lang.Long
+  * Decimal(decimal): java.math.BigDecimal
+  * Double(float): java.lang.Double
+  * Date(ansidate): java.sql.Date
+  * Time(time without time zone): java.sql.Time
+  * Time(time with time zone): java.sql.Time
+  * Time(time with local time zone): java.sql.Time
+  * Timestamp(timestamp without time zone): java.sql.Timestamp
+  * Timestamp(timestamp with time zone): java.sql.Timestamp
+  * Timestamp(timestamp with local time zone): java.sql.Timestamp
+  * VarChar(interval year to month): java.lang.String
+  * VarChar(interval day to second): java.lang.String
+  * Decimal(money): java.math.BigDecimal
+  * Binary(ipv4): Array[Byte]
+  * Binary(ipv6): Array[Byte]
+  * Binary(uuid): Array[Byte]
+  * Boolean(boolean): java.lang.Boolean
+  *
+  * @see https://docs.actian.com/avalanche/index.html#page/SQLLanguage%2F2._SQL_Data_Types.htm%23ww414616
+  */
 object AvalancheLoader {
   import java.sql.Types._
 
   type I = AvalancheHygiene.HygienicIdent
 
-  val SupportedSqlTypes: Set[Int] =
+  val SupportedSqlTypes: Set[SqlType] =
     Set(
       BIGINT,
       BOOLEAN,
@@ -123,11 +128,11 @@ object AvalancheLoader {
           case ColumnSelection.Explicit(idents) =>
             idents.map(_.fr0).intercalate(fr",")
 
-          case ColumnSelection.All => fr"*"
+          case ColumnSelection.All => fr0"*"
         }
 
         val sql =
-          (fr"SELECT" ++ projections ++ fr"FROM" ++ dbObject0).query[Unit].sql
+          (fr"SELECT" ++ projections ++ fr" FROM" ++ dbObject0).query[Unit].sql
 
         val ps =
           FC.prepareStatement(
@@ -136,9 +141,7 @@ object AvalancheLoader {
             ResultSet.CONCUR_READ_ONLY)
 
         val results =
-          loggedRValueQuery(sql, ps, resultChunkSize, logHandler)(
-            isSupported,
-            unsafeRValue)
+          loggedRValueQuery(sql, ps, resultChunkSize, logHandler)(isSupported, unsafeRValue)
 
         results.map(QueryResult.parsed(QDataRValue, _, ScalarStages.Id))
     }
@@ -146,41 +149,49 @@ object AvalancheLoader {
   def isSupported(sqlType: SqlType, avalancheType: VendorType): Boolean =
     SupportedSqlTypes(sqlType) || SupportedAvalancheTypes(avalancheType)
 
-  // TODO: Error handling?
   def unsafeRValue(rs: ResultSet, col: ColumnNum, sqlType: SqlType, vendorType: VendorType): RValue = {
     def unlessNull[A](a: A)(f: A => RValue): RValue =
       if (a == null) null else f(a)
 
     (sqlType: @switch) match {
-      // TODO: handle intervals and interpret into DateTimeInterval
-      case CHAR | NCHAR | NVARCHAR | VARCHAR => unlessNull(rs.getString(col))(RValue.rString(_))
+      case CHAR | NCHAR | NVARCHAR =>
+        unlessNull(rs.getString(col))(RValue.rString(_))
 
-      case TINYINT | SMALLINT | INTEGER | BIGINT => unlessNull(rs.getLong(col))(RValue.rLong(_))
+      case VARCHAR =>
+        unlessNull(rs.getString(col)) { s =>
+          if (vendorType == IntervalYearToMonth)
+            RValue.rInterval(unsafeParseYearToMonth(s))
+          else if (vendorType == IntervalDayToSecond)
+            RValue.rInterval(unsafeParseDayToSecond(s))
+          else
+            RValue.rString(s)
+        }
 
-      case DOUBLE | FLOAT | REAL => unlessNull(rs.getDouble(col))(RValue.rDouble(_))
+      case TINYINT | SMALLINT | INTEGER | BIGINT =>
+        unlessNull(rs.getLong(col))(RValue.rLong(_))
 
-      case DECIMAL | NUMERIC => unlessNull(rs.getBigDecimal(col))(RValue.rNum(_))
+      case DOUBLE | FLOAT | REAL =>
+        unlessNull(rs.getDouble(col))(RValue.rDouble(_))
 
-      case BOOLEAN => unlessNull(rs.getBoolean(col))(RValue.rBoolean(_))
+      case DECIMAL | NUMERIC =>
+        unlessNull(rs.getBigDecimal(col))(RValue.rNum(_))
 
-      case DATE => unlessNull(rs.getDate(col))(d => RValue.rLocalDate(d.toLocalDate))
+      case BOOLEAN =>
+        unlessNull(rs.getBoolean(col))(RValue.rBoolean(_))
 
-      // TODO: Timezone handling?
+      case DATE =>
+        unlessNull(rs.getDate(col))(d => RValue.rLocalDate(d.toLocalDate))
+
       case TIME =>
         unlessNull(rs.getTime(col))(t => RValue.rLocalTime(t.toLocalTime))
 
-      // TODO: Timezone handling?
       case TIMESTAMP =>
         unlessNull(rs.getTimestamp(col)) { ts =>
           RValue.rOffsetDateTime(ts.toInstant.atOffset(ZoneOffset.UTC))
         }
 
       case otherSql => vendorType match {
-//      case IntervalYearToMonth => ???
-
-//      case IntervalDayToSecond => ???
-
-        // TODO: Parsing the bytes directly would eliminate the `InetAddress` allocation
+        // TODO: Could avoid the `InetAddress` allocation by parsing the bytes directly.
         case IPv4 | IPv6 =>
           unlessNull(rs.getBytes(col)) { bs =>
             RValue.rString(InetAddress.getByAddress(bs).getHostAddress)
@@ -196,5 +207,75 @@ object AvalancheLoader {
           RValue.rString(unsupportedColumnTypeMsg(JdbcType.fromInt(otherSql), otherVendor))
       }
     }
+  }
+
+  ////
+
+  private val NanosInSecond: Int = 1000 * 1000 * 1000
+
+  // RANGE: -3652047 23:59:59.999999 to 3652047 23:59:59.999999
+  // NB: We use 'u' (YEAR) in the pattern since the day value can overflow the day pattern
+  private val DTSFormatter = DateTimeFormatter.ofPattern("u H:m:s")
+
+  // Cribbed from https://github.com/precog/tectonic/blob/3ce1f15d4a3f1ca54678182c6f6e393312bbeca1/core/src/main/scala/tectonic/util/package.scala#L140
+  private def unsafeParseInt(cs: CharSequence, start: Int, end: Int): Int = {
+    // we store the inverse of the positive sum, to ensure we don't
+    // incorrectly overflow on Int.MinValue. for positive numbers
+    // this inverse sum will be inverted before being returned.
+    var inverseSum: Int = 0
+    var inverseSign: Int = -1
+    var i: Int = start
+
+    if (cs.charAt(i) == '-') {
+      inverseSign = 1
+      i += 1
+    }
+
+    while (i < end) {
+      inverseSum = inverseSum * 10 - (cs.charAt(i).toInt - 48)
+      i += 1
+    }
+
+    inverseSum * inverseSign
+  }
+
+  private def unsafeParseDayToSecond(cs: CharSequence): DateTimeInterval = {
+    val p = new ParsePosition(0)
+    val t = DTSFormatter.parse(cs, p)
+
+    val nanos =
+      if ((p.getIndex + 1) < cs.length && cs.charAt(p.getIndex) == '.') {
+        val fraction = unsafeParseInt(cs, p.getIndex + 1, cs.length)
+        if (fraction == 0) 0L else ((1.0 / fraction) * NanosInSecond).toLong
+      } else {
+        0L
+      }
+
+    DateTimeInterval(
+      // We parsed the days value using the YEAR field to avoid overflow
+      Period.of(0, 0, t.get(ChronoField.YEAR)),
+      Duration.ofSeconds(t.getLong(ChronoField.SECOND_OF_DAY), nanos))
+  }
+
+  // RANGE: -9999-11 to 9999-11
+  private def unsafeParseYearToMonth(cs: CharSequence): DateTimeInterval = {
+    val len: Int = cs.length
+    var sign: Int = 1
+    var y: Int = 0
+    var h: Int = 1
+
+    if (cs.charAt(0) == '-') {
+      sign = -1
+      y = 1
+    }
+
+    while (h < len && cs.charAt(h) != '-') {
+      h += 1
+    }
+
+    DateTimeInterval.ofPeriod(Period.of(
+      sign * unsafeParseInt(cs, y, h),
+      sign * unsafeParseInt(cs, h + 1, len),
+      0))
   }
 }
