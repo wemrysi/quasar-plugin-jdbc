@@ -20,8 +20,6 @@ import scala._, Predef._
 
 import java.net.URI
 
-import moncle.macros.{GenPrism, Lenses}
-
 sealed trait JdbcDriverConfig extends Product with Serializable
 
 object JdbcDriverConfig {
@@ -30,10 +28,9 @@ object JdbcDriverConfig {
     * @param className the fully-qualified name of the `javax.sql.DataSource` class provided by a JDBC driver.
     * @param properties used to configure the JDBC `DataSource`
     */
-   @Lenses
   final case class JdbcDataSourceConfig(
       className: String,
-      properties: Map[String, AnyRef])
+      properties: Map[String, String])
       extends JdbcDriverConfig
 
   /** Configuration for a JDBC driver manged by `java.sql.DriverManager`.
@@ -43,15 +40,8 @@ object JdbcDriverConfig {
     *                        is usually automatically determined by the `connectionUrl`,
     *                        so only provide it if necessary.
     */
-   @Lenses
   final case class JdbcDriverManagerConfig(
       connectionUrl: URI,
       driverClassName: Option[String])
       extends JdbcDriverConfig
-
-  val jdbcDataSourceConfig: Prism[JdbcDriverConfig, JdbcDataSourceConfig] =
-    GenPrism[JdbcDriverConfig, JdbcDataSourceConfig]
-
-  val jdbcDriverManagerConfig: Prism[JdbcDriverConfig, JdbcDriverManagerConfig] =
-    GenPrism[JdbcDriverConfig, JdbcDriverManagerConfig]
 }

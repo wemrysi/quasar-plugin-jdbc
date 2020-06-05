@@ -16,30 +16,28 @@
 
 package quasar.plugin.jdbc.config
 
-import scala._, Predef._
+import scala._
 import scala.concurrent.duration._
-import scala.util.Either
-
-import moncle.macros.Lenses
 
 /** Configuration for a `doobie.Transactor`.
   *
-  * @param driver describes how to configure and load the JDBC driver
+  * @param driverConfig describes how to configure and load the JDBC driver
+  * @param connectionMaxConcurrency the maximum number of concurrent connections to allow to the database
+  * @param connectionReadOnly whether to obtain `Connection`s in read-only mode
   * @param connectionTimeout how long to await a database connection before erroring (default: 30s)
   * @param connectionValidationTimeout how long to await validation of a connection (default: 5s)
   * @param connectionMaxLifetime the maximum lifetime of a database connection,
   *                              idle connections exceeding their lifetime will be replaced with
   *                              new ones. Make sure to set this several seconds shorter than any
   *                              database or infrastructure imposed connection time limit. (default: 30min)
-  * @param connectionMaxConcurrency the maximum number of concurrent connections to allow to the database
   */
-@Lenses
 final case class TransactorConfig(
-    driver: Either[JdbcDriverManagerConfig, JdbcDataSourceConfig],
+    driverConfig: JdbcDriverConfig,
+    connectionMaxConcurrency: Int,
+    connectionReadOnly: Boolean,
     connectionTimeout: FiniteDuration,
     connectionValidationTimeout: FiniteDuration,
-    connectionMaxLifetime: FiniteDuration,
-    connectionMaxConcurrency: Int)
+    connectionMaxLifetime: FiniteDuration)
 
 object TransactorConfig {
   val DefaultConnectionTimeout: FiniteDuration = 30.seconds
@@ -47,13 +45,15 @@ object TransactorConfig {
   val DefaultConnectionMaxLifetime: FiniteDuration = 30.minutes
 
   def withDefaultTimeouts(
-      driver: Either[JdbcDriverManagerConfig, JdbcDataSourceConfig],
-      connectionMaxConcurrency: Int)
+      driverConfig: JdbcDriverConfig,
+      connectionMaxConcurrency: Int,
+      connectionReadOnly: Boolean)
       : TransactorConfig =
     TransactorConfig(
-      driver,
+      driverConfig = driverConfig,
+      connectionMaxConcurrency = connectionMaxConcurrency,
+      connectionReadOnly = connectionReadOnly,
       connectionTimeout = DefaultConnectionTimeout,
       connectionValidationTimeout = DefaultConnectionValidationTimeout,
-      connectionMaxLifetime = DefaultConnectionMaxLifetime,
-      connectionMaxConcurrency = connectionMaxConcurrency)
+      connectionMaxLifetime = DefaultConnectionMaxLifetime)
 }
