@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package quasar.plugin.jdbc.config
+package quasar.plugin.jdbc
 
 import scala._, Predef._
 

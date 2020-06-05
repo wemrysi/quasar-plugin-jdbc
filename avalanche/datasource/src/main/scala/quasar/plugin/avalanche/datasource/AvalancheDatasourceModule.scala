@@ -16,15 +16,16 @@
 
 package quasar.plugin.avalanche.datasource
 
-import scala.{Option, Some}
+import scala.{Int, Option, Some}
 import scala.collection.immutable.SortedSet
+import scala.concurrent.duration._
 import scala.util.Either
 
 import java.lang.String
 
 import argonaut._, Argonaut._
 
-import cats.data.NonEmptySet
+import cats.data.{NonEmptyList, NonEmptySet}
 import cats.effect._
 import cats.implicits._
 
@@ -36,12 +37,17 @@ import quasar.RateLimiting
 import quasar.api.datasource.DatasourceType
 import quasar.connector.{ByteStore, MonadResourceErr}
 import quasar.connector.datasource.LightweightDatasourceModule
-import quasar.plugin.jdbc.{JdbcDiscovery, TableType}
+import quasar.plugin.jdbc.{JdbcDiscovery, TableType, TransactorConfig}
+import quasar.plugin.jdbc.JdbcDriverConfig.JdbcDataSourceConfig
 import quasar.plugin.jdbc.datasource.JdbcDatasourceModule
 
 import org.slf4s.Logger
 
 object AvalancheDatasourceModule extends JdbcDatasourceModule[DatasourceConfig] {
+
+  val DefaultConnectionMaxConcurrency: Int = 8
+  // Avalanche cloud appears to terminate idle connections after 4 minutes
+  val DefaultConnectionMaxLifetime: FiniteDuration = 3.minutes + 30.seconds
 
   val kind = DatasourceType("avalanche", 1L)
 
@@ -54,6 +60,25 @@ object AvalancheDatasourceModule extends JdbcDatasourceModule[DatasourceConfig] 
       default = NonEmptySet.of("TABLE", "VIEW")
       discoverable = NonEmptySet.fromSet(pruned) getOrElse default
     } yield discoverable.map(TableType(_)))
+
+  def transactorConfig(config: DatasourceConfig): Either[NonEmptyList[String], TransactorConfig] =
+    config.connection.validated.toEither map { c =>
+      val driverCfg =
+        JdbcDataSourceConfig("com.ingres.jdbc.IngresDataSource", c.dataSourceProperites)
+
+      val maxConcurrency =
+        c.maxConcurrency getOrElse DefaultConnectionMaxConcurrency
+
+      val maxLifetime =
+        c.maxLifetime getOrElse DefaultConnectionMaxLifetime
+
+      TransactorConfig
+        .withDefaultTimeouts(
+          driverConfig = driverCfg,
+          connectionMaxConcurrency = maxConcurrency,
+          connectionReadOnly = true)
+        .copy(connectionMaxLifetime = maxLifetime)
+    }
 
   def sanitizeConfig(config: Json): Json =
     config.as[DatasourceConfig].toOption

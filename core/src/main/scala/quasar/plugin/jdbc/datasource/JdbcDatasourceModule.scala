@@ -16,8 +16,7 @@
 
 package quasar.plugin.jdbc.datasource
 
-import quasar.plugin.jdbc.{ManagedTransactor, Redacted}
-import quasar.plugin.jdbc.config._
+import quasar.plugin.jdbc.{ManagedTransactor, Redacted, TransactorConfig}
 
 import java.lang.{Exception, String}
 
@@ -25,7 +24,7 @@ import scala.StringContext
 import scala.concurrent.ExecutionContext
 import scala.util.{Either, Left, Random, Right}
 
-import argonaut._, Argonaut._
+import argonaut._, Argonaut._, ArgonautCats._
 
 import cats.Hash
 import cats.data.{EitherT, NonEmptyList}
@@ -76,13 +75,15 @@ abstract class JdbcDatasourceModule[C: DecodeJson] extends LightweightDatasource
       implicit ec: ExecutionContext)
       : Resource[F, Either[InitError, LightweightDatasourceModule.DS[F]]] = {
 
+    val id = s"${kind.name.value}-v${kind.version.value}"
+
     val cfg0: Either[InitError, C] =
       config.as[C].fold(
-        (err, c) =>
+        (_, c) =>
           Left(DE.malformedConfiguration[Json, InitError](
             kind,
             jString(Redacted),
-            err)),
+            s"Failed to decode $id JSON at ${c.toList.map(_.show).mkString(", ")}")),
         Right(_))
 
     def liftF[X](fa: F[X]): EitherT[Resource[F, ?], InitError, X] =
@@ -99,7 +100,7 @@ abstract class JdbcDatasourceModule[C: DecodeJson] extends LightweightDatasource
 
       tag <- liftF(Sync[F].delay(Random.alphanumeric.take(6).mkString))
 
-      debugId = s"datasource.${kind.name.value}-v${kind.version.value}.$tag"
+      debugId = s"datasource.$id.$tag"
 
       xa <- EitherT {
         ManagedTransactor[F](debugId, xaCfg)

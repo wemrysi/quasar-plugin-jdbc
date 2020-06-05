@@ -16,8 +16,6 @@
 
 package quasar.plugin.jdbc
 
-import quasar.plugin.jdbc.config._
-
 import java.lang.String
 import java.util.concurrent.Executors
 
@@ -63,7 +61,7 @@ object ManagedTransactor {
       c.setMaxLifetime(config.connectionMaxLifetime.toMillis)
 
       // Fail initialization unless able to obtain a valid connection
-      c.setInitializationFailTimeout(0)
+      c.setInitializationFailTimeout(1)
 
       c
     }
