@@ -43,36 +43,16 @@ object RValueRead {
     */
   def apply(
       meta: ResultSetMetaData,
-      isSupported: (SqlType, String) => Boolean,
-      unsafeRValue: (ResultSet, ColumnNum, SqlType, String) => RValue)
+      isSupported: (SqlType, VendorType) => Boolean,
+      unsafeRValue: (ResultSet, ColumnNum, SqlType, VendorType) => RValue)
       : Read[RValue] = {
 
     val size: Int = meta.getColumnCount
     val sqlTypes: Array[SqlType] = new Array[SqlType](size + 1)
-    val vendorTypeNames: Array[String] = new Array[String](size + 1)
+    val vendorTypeNames: Array[VendorType] = new Array[VendorType](size + 1)
     val columnLabels: Array[String] = new Array[String](size + 1)
     var structure: Map[String, RValue] = Map.empty[String, RValue]
     var unsupportedColumns: BitSet = BitSet.empty
-
-    def unsafeGet(rs: ResultSet, `_`: Int): RValue = {
-      var c: Int = 1
-      var rv: RValue = null
-      var row: Map[String, RValue] = structure
-
-      while (c <= size) {
-        if (!unsupportedColumns(c)) {
-          rv = unsafeRValue(rs, c, sqlTypes(c), vendorTypeNames(c))
-
-          if (rv != null) {
-            row = row.updated(columnLabels(c), rv)
-          }
-        }
-
-        c += 1
-      }
-
-      RValue.rObject(row)
-    }
 
     var i = 1
 
@@ -94,6 +74,26 @@ object RValueRead {
         }
 
       i += 1
+    }
+
+    def unsafeGet(rs: ResultSet, `_`: Int): RValue = {
+      var c: Int = 1
+      var rv: RValue = null
+      var row: Map[String, RValue] = structure
+
+      while (c <= size) {
+        if (!unsupportedColumns(c)) {
+          rv = unsafeRValue(rs, c, sqlTypes(c), vendorTypeNames(c))
+
+          if (rv != null) {
+            row = row.updated(columnLabels(c), rv)
+          }
+        }
+
+        c += 1
+      }
+
+      RValue.rObject(row)
     }
 
     new Read[RValue](Nil, unsafeGet)

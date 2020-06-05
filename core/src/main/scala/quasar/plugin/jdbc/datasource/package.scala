@@ -115,7 +115,6 @@ package object datasource {
     } yield as ++ Stream.eval_(logSuccess)
   }
 
-  // TODO: Log unsupported columns
   def loggedRValueQuery(
       sql: String,
       prepare: ConnectionIO[PreparedStatement],
