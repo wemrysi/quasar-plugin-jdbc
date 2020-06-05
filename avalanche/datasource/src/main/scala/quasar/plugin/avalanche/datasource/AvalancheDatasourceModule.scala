@@ -41,7 +41,7 @@ import quasar.plugin.jdbc.datasource.JdbcDatasourceModule
 
 import org.slf4s.Logger
 
-object AvalancheDatasourceModule extends JdbcDatasourceModule[Config]("com.ingres.jdbc.IngresDriver") {
+object AvalancheDatasourceModule extends JdbcDatasourceModule[DatasourceConfig] {
 
   val kind = DatasourceType("avalanche", 1L)
 
@@ -56,11 +56,11 @@ object AvalancheDatasourceModule extends JdbcDatasourceModule[Config]("com.ingre
     } yield discoverable.map(TableType(_)))
 
   def sanitizeConfig(config: Json): Json =
-    config.as[Config].toOption
+    config.as[DatasourceConfig].toOption
       .fold(jEmptyObject)(_.sanitized.asJson)
 
   def jdbcDatasource[F[_]: ConcurrentEffect: ContextShift: MonadResourceErr: Timer, A](
-      config: Config,
+      config: DatasourceConfig,
       transactor: Transactor[F],
       rateLimiter: RateLimiting[F, A],
       byteStore: ByteStore[F],
