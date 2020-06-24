@@ -75,7 +75,7 @@ abstract class JdbcDatasourceModule[C: DecodeJson] extends LightweightDatasource
       implicit ec: ExecutionContext)
       : Resource[F, Either[InitError, LightweightDatasourceModule.DS[F]]] = {
 
-    val id = s"${kind.name.value}-v${kind.version.value}"
+    val id = s"${kind.name.value}-v${kind.version}"
 
     val cfg0: Either[InitError, C] =
       config.as[C].fold(
