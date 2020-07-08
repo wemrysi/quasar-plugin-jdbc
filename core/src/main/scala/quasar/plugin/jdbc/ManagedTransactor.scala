@@ -50,7 +50,7 @@ object ManagedTransactor {
           props.foreach { case (k, v) => c.addDataSourceProperty(k, v) }
 
         case JdbcDriverManagerConfig(url, className) =>
-          c.setJdbcUrl(url.toString)
+          c.setJdbcUrl(s"${url.getScheme}:${url.getSchemeSpecificPart}")
           className.foreach(c.setDriverClassName)
       }
 
