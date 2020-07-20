@@ -37,5 +37,7 @@ lazy val core = project
       "org.tpolecat" %% "doobie-core" % DoobieVersion,
       "org.tpolecat" %% "doobie-hikari" % DoobieVersion,
 
+      "io.chrisdavenport" %% "log4cats-slf4j" % "1.0.1",
+
       "org.specs2" %% "specs2-core" % "4.9.4" % Test
     ))
