@@ -92,7 +92,7 @@ object JdbcCreateSink {
       sunk = jdbcSink(hygienicRef, hygienicColumns, instrumentedBytes) ++ Stream.eval_(ingestSucceeded)
 
       out = sunk onError {
-        case t => Stream.eval_(for {
+        case t => Stream.eval(for {
           failedAt <- timer.clock.monotonic(MILLISECONDS)
           elapsed = Duration.ofMillis(failedAt - startAt)
           progress <- totalBytes.get
