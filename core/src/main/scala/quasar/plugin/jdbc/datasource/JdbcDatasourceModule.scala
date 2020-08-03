@@ -19,8 +19,9 @@ package quasar.plugin.jdbc.datasource
 import quasar.plugin.jdbc.{ManagedTransactor, Redacted, TransactorConfig}
 
 import java.lang.{Exception, String}
+import java.util.UUID
 
-import scala.StringContext
+import scala.{StringContext, Option}
 import scala.concurrent.ExecutionContext
 import scala.util.{Either, Left, Random, Right}
 
@@ -35,7 +36,7 @@ import doobie._
 
 import quasar.RateLimiting
 import quasar.api.datasource.{DatasourceError => DE}
-import quasar.connector.{ByteStore, MonadResourceErr}
+import quasar.connector.{ByteStore, MonadResourceErr, ExternalCredentials}
 import quasar.connector.datasource.LightweightDatasourceModule
 
 import org.slf4s.{Logger, LoggerFactory}
@@ -63,6 +64,7 @@ abstract class JdbcDatasourceModule[C: DecodeJson] extends LightweightDatasource
       transactor: Transactor[F],
       rateLimiter: RateLimiting[F, A],
       byteStore: ByteStore[F],
+      getAuth: UUID => F[Option[ExternalCredentials[F]]],
       log: Logger)
       : Resource[F, Either[InitError, LightweightDatasourceModule.DS[F]]]
 
@@ -71,10 +73,10 @@ abstract class JdbcDatasourceModule[C: DecodeJson] extends LightweightDatasource
   def lightweightDatasource[F[_]: ConcurrentEffect: ContextShift: MonadResourceErr: Timer, A: Hash](
       config: Json,
       rateLimiter: RateLimiting[F, A],
-      byteStore: ByteStore[F])(
+      byteStore: ByteStore[F],
+      getAuth: UUID => F[Option[ExternalCredentials[F]]])(
       implicit ec: ExecutionContext)
       : Resource[F, Either[InitError, LightweightDatasourceModule.DS[F]]] = {
-    val _ = ec
 
     val id = s"${kind.name.value}-v${kind.version}"
 
@@ -111,7 +113,7 @@ abstract class JdbcDatasourceModule[C: DecodeJson] extends LightweightDatasource
 
       slog <- liftF(Sync[F].delay(LoggerFactory(s"quasar.plugin.$debugId")))
 
-      ds <- EitherT(jdbcDatasource(cfg, xa, rateLimiter, byteStore, slog))
+      ds <- EitherT(jdbcDatasource(cfg, xa, rateLimiter, byteStore, getAuth, slog))
 
       _ <- liftF(Sync[F].delay(slog.info(s"Initialized $debugId: ${sanitizeConfig(config)}")))
     } yield ds
