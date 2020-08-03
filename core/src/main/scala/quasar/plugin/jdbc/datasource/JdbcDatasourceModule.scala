@@ -74,6 +74,7 @@ abstract class JdbcDatasourceModule[C: DecodeJson] extends LightweightDatasource
       byteStore: ByteStore[F])(
       implicit ec: ExecutionContext)
       : Resource[F, Either[InitError, LightweightDatasourceModule.DS[F]]] = {
+    val _ = ec
 
     val id = s"${kind.name.value}-v${kind.version}"
 
