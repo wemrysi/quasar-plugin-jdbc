@@ -36,6 +36,7 @@ import doobie.util.log._
 import fs2.{Chunk, Stream}
 
 import quasar.common.data.RValue
+import quasar.ScalarStages
 import quasar.connector.QueryResult
 import quasar.connector.datasource.BatchLoader
 
@@ -47,6 +48,9 @@ package object datasource {
   type SqlType = Int
 
   type JdbcLoader[F[_], A] = BatchLoader[Resource[F, ?], JdbcLoader.Args[A], QueryResult[F]]
+
+  type MaskInterpreter[A] =
+    JdbcLoader.Args[A] => ConnectionIO[(A, Option[A], ColumnSelection[A], ScalarStages)]
 
   def getNextChunk[A: ClassTag](chunkSize: Int)(implicit A: Read[A]): ResultSetIO[Chunk[A]] =
     FRS raw { rs =>
